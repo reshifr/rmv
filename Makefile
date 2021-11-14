@@ -5,7 +5,7 @@ CC = gcc
 CXX = g++
 
 CFLAGS += -std=c99 -O3
-CXXFLAGS += -std=c++11 -O3
+CXXFLAGS += -std=c++11 -O3 -fopenmp -lgomp
 
 OLD = old
 MAIN = main
