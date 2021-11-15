@@ -1,9 +1,7 @@
-#include <vector>
-#include <functional>
-#include <cinttypes>
 #include <string>
 #include <iostream>
-#include <iterator>
+#include <cinttypes>
+#include <functional>
 
 namespace rsfr {
   template <
@@ -18,7 +16,6 @@ namespace rsfr {
       using const_pointer = const T*;
       using size_type = std::uint_fast64_t;
       using difference_type = std::int_fast64_t;
-
       using rdeep = std::uint_fast8_t;
       using rblock = std::uint_fast32_t;
 
@@ -361,6 +358,8 @@ namespace rsfr {
       using difference_type = typename mv<Exp, T>::difference_type;
       using iterator = rmvi<Exp, T>;
       using const_iterator = rmvci<Exp, T>;
+      using reverse_iterator = rmvri<Exp, T>;
+      using const_reverse_iterator = rmvcri<Exp, T>;
 
     public:
       void extend(size_type num) {
@@ -391,10 +390,8 @@ namespace rsfr {
     
     public:
       rmv(void) : mv<Exp, T>() {}
-
       explicit rmv(size_type num) : rmv() {
-        extend(num);
-      }
+        extend(num); }
 
       rmv(const std::initializer_list<value_type>& init) : rmv() {
         extend(init.size());
