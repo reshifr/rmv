@@ -11,8 +11,8 @@ OLD = old
 MAIN = main
 
 ifneq (,$(filter Windows%,$(OS)))
-	OLD := $(OLD).exe
-	MAIN := $(MAIN).exe
+	OLD := V:\$(OLD).exe
+	MAIN := V:\$(MAIN).exe
 endif
 
 .PHONY: old main
@@ -20,7 +20,7 @@ endif
 all: old main
 
 old: old.c
-	$(CC) $< -o $@ $(CFLAGS)
+	$(CC) $< -o $(OLD) $(CFLAGS)
 ifneq (,$(filter Windows%,$(OS)))
 	@$(OLD)
 	@del /F /S /Q $(OLD) 1> nul 2> nul || ver > nul
@@ -31,7 +31,7 @@ else
 endif
 
 main: main.cpp rmv.h
-	$(CXX) $< -o $@ $(CXXFLAGS)
+	$(CXX) $< -o $(MAIN) $(CXXFLAGS)
 ifneq (,$(filter Windows%,$(OS)))
 	@$(MAIN)
 	@del /F /S /Q $(MAIN) 1> nul 2> nul || ver > nul
