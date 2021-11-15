@@ -10,6 +10,13 @@ CXXFLAGS += -std=c++11 -O3 -fopenmp -lgomp
 OLD = old
 MAIN = main
 
+UNAME = $(shell uname -s)
+
+ifneq (,$(filter Linux%,$(UNAME)))
+	OLD := /mnt/Volatile/$(OLD)
+	MAIN := /mnt/Volatile/$(MAIN)
+endif
+
 ifneq (,$(filter Windows%,$(OS)))
 	OLD := V:\$(OLD).exe
 	MAIN := V:\$(MAIN).exe
@@ -26,7 +33,7 @@ ifneq (,$(filter Windows%,$(OS)))
 	@del /F /S /Q $(OLD) 1> nul 2> nul || ver > nul
 else
 	@chmod +x $(OLD)
-	@./$(OLD)
+	@$(OLD)
 	@rm -rf $(OLD) &> /dev/null
 endif
 
@@ -37,6 +44,6 @@ ifneq (,$(filter Windows%,$(OS)))
 	@del /F /S /Q $(MAIN) 1> nul 2> nul || ver > nul
 else
 	@chmod +x $(MAIN)
-	@./$(MAIN)
+	@$(MAIN)
 	@rm -rf $(MAIN) &> /dev/null
 endif
