@@ -32,13 +32,15 @@ class timer {
 #define MILLION(_n) (_n ## 000 ## 000 ## ULL)
 
 #ifdef RMV_DEBUG
-# define N 9
+# define N 14
 #else
 # define N MILLION(1)
 #endif
 
 int main(void) {
-  rsfr::rmv<1, int> mv(N);
+  rsfr::rmv<1, int> mv;
+
+  mv.push_block();
 
 #ifdef RMV_DEBUG
   std::cout<<mv;

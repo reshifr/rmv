@@ -30,7 +30,7 @@ namespace rsfr {
         return block_size()-1; }
       constexpr rblock block_count(size_type num) {
         return (num>>Exp)+((num&block_end())==0 ? 0 : 1); }
-      constexpr size_type peek(rdeep deep) {
+      constexpr size_type end(rdeep deep) {
         return (static_cast<size_type>(1)<<(Exp*(deep+1)))-1; }
       constexpr size_type mask(rdeep lvl) {
         return block_end()<<(Exp*lvl); }
@@ -43,22 +43,62 @@ namespace rsfr {
         m_peek(),
         m_root() {}
 
-      void build(pointer* root, rdeep lvl, rblock& num_block) {
+      void fill(pointer* root, rdeep lvl, rblock& num) {
         if( lvl==1 ) {
           for(auto i=jump(lvl, m_peek+block_size());
-              num_block!=0 && i<block_size(); ++i) {
+              num!=0 && i<block_size(); ++i, --num, m_peek+=block_size())
             root[i] = reinterpret_cast<pointer>(new value_type[block_size()]());
-            m_peek += block_size();
-            --num_block;
-          }
           return;
         }
         for(auto i=jump(lvl, m_peek+block_size());
-            num_block!=0 && i<block_size(); ++i) {
+            num!=0 && i<block_size(); ++i) {
           if( root[i]==nullptr )
             root[i] = reinterpret_cast<pointer>(new pointer[block_size()]());
-          build(reinterpret_cast<pointer*>(root[i]), lvl-1, num_block);
+          fill(reinterpret_cast<pointer*>(root[i]), lvl-1, num);
         }
+      }
+
+      void build(rblock num) {
+        if( m_peek==0 ) {
+          m_root = reinterpret_cast<pointer*>(
+            new value_type[block_size()]());
+          m_peek += block_end();
+          --num;
+        }
+        while( num!=0 ) {
+          if( m_peek==end(m_deep) ) {
+            auto block = m_root;
+            m_root = new pointer[block_size()]();
+            *m_root = reinterpret_cast<pointer>(block);
+            ++m_deep;
+          }
+          fill(m_root, m_deep, num);
+        }
+      }
+
+      void push(void) {
+        if( m_peek==0 ) {
+          m_root = reinterpret_cast<pointer*>(
+            new value_type[block_size()]());
+          m_peek += block_end();
+          return;
+        }
+        auto block = m_root;
+        if( m_peek==end(m_deep) ) {
+          m_root = new pointer[block_size()]();
+          *m_root = reinterpret_cast<pointer>(block);
+          block = m_root;
+          ++m_deep;
+        }
+        m_peek += block_size();
+        for(rdeep lvl=m_deep; lvl>1; --lvl) {
+          auto i = jump(lvl, m_peek);
+          if( block[i]==nullptr )
+            block[i] = reinterpret_cast<pointer>(new pointer[block_size()]());
+          block = reinterpret_cast<pointer*>(block[i]);
+        }
+        block[jump(1, m_peek)] =
+          reinterpret_cast<pointer>(new value_type[block_size()]());
       }
 
   #ifdef RMV_DEBUG
@@ -343,10 +383,12 @@ namespace rsfr {
     using mv<Exp, T>::block_size;
     using mv<Exp, T>::block_end;
     using mv<Exp, T>::block_count;
-    using mv<Exp, T>::peek;
+    using mv<Exp, T>::end;
     using mv<Exp, T>::mask;
     using mv<Exp, T>::jump;
+    using mv<Exp, T>::fill;
     using mv<Exp, T>::build;
+    using mv<Exp, T>::push;
 
     public:
       using value_type = typename mv<Exp, T>::value_type;
@@ -370,22 +412,12 @@ namespace rsfr {
         } else
           num -= m_free;
         auto num_block = block_count(num);
-        if( m_peek==0 ) {
-          m_root = reinterpret_cast<pointer*>(
-            new value_type[block_size()]());
-          m_peek += block_end();
-          --num_block;
-        }
-        while( num_block!=0 ) {
-          if( m_peek==peek(m_deep) ) {
-            auto block = m_root;
-            m_root = new pointer[block_size()]();
-            *m_root = reinterpret_cast<pointer>(block);
-            ++m_deep;
-          }
-          build(m_root, m_deep, num_block);
-        }
+        build(num_block);
         m_free = capacity()-new_size;
+      }
+
+      void push_block(void) {
+        push();
       }
     
     public:
@@ -442,7 +474,7 @@ namespace rsfr {
         stream<<"capacity = "<<static_cast<size_type>(
           vector.capacity())<<std::endl;
         stream<<"max      = "<<static_cast<size_type>(
-          vector.peek(vector.m_deep)+1)<<std::endl;
+          vector.end(vector.m_deep)+1)<<std::endl;
         stream<<"root     = "<<static_cast<void*>(vector.m_root)<<std::endl;
         stream<<std::endl;
         vector.debug(const_cast<const_pointer*>(vector.m_root), 0, stream);
