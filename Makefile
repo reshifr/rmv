@@ -10,16 +10,12 @@ CXXFLAGS += -std=c++11 -O3 -fopenmp -lgomp
 OLD = old
 MAIN = main
 
-UNAME = $(shell uname -s)
-
-ifneq (,$(filter Linux%,$(UNAME)))
-	OLD := /mnt/Volatile/$(OLD)
-	MAIN := /mnt/Volatile/$(MAIN)
-endif
-
 ifneq (,$(filter Windows%,$(OS)))
 	OLD := V:\$(OLD).exe
 	MAIN := V:\$(MAIN).exe
+else ifneq (,$(filter Linux%,$(shell uname -s)))
+	OLD := /mnt/Volatile/$(OLD)
+	MAIN := /mnt/Volatile/$(MAIN)
 endif
 
 .PHONY: old main
