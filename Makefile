@@ -1,45 +1,42 @@
 # Reshifr Multilevel Vector
 # Make
 
-CC = gcc
-CXX = g++
-
-CFLAGS += -std=c99 -O3
-CXXFLAGS += -std=c++11 -O3 -fopenmp -lgomp
-
-OLD = old
-MAIN = main
-
 ifneq (,$(filter Windows%,$(OS)))
-	OLD := V:\$(OLD).exe
-	MAIN := V:\$(MAIN).exe
+	TARGET := V:\main
 else ifneq (,$(filter Linux%,$(shell uname -s)))
-	OLD := /mnt/Volatile/$(OLD)
-	MAIN := /mnt/Volatile/$(MAIN)
+	TARGET := /mnt/Volatile/main
 endif
 
-.PHONY: old main
+.PHONY: gcc msvc clang
 
-all: old main
-
-old: old.c
-	$(CC) $< -o $(OLD) $(CFLAGS)
+gcc: main.cpp rmv.hpp
 ifneq (,$(filter Windows%,$(OS)))
-	@$(OLD)
-	@del /F /S /Q $(OLD) 1> nul 2> nul || ver > nul
+	g++ $< -o $(TARGET).exe -std=c++11 -O3 -fopenmp -lgomp -I.
+	@$(TARGET).exe
+	@echo Process returns value %ERRORLEVEL% . . .
+	@del /F /S /Q $(TARGET).exe 1> nul 2> nul || ver > nul
 else
-	@chmod +x $(OLD)
-	@$(OLD)
-	@rm -rf $(OLD) &> /dev/null
+	g++ $< -o $(TARGET) -std=c++11 -O3 -fopenmp -lgomp -I.
+	@chmod +x $(TARGET)
+	@$(TARGET)
+	@rm -rf $(TARGET) &> /dev/null
 endif
 
-main: main.cpp rmv.h
-	$(CXX) $< -o $(MAIN) $(CXXFLAGS)
+msvc: main.cpp rmv.hpp
+	cl $< /std:c++17 /O2 /EHsc /I. /Fe:$(TARGET).exe /Fo:$(TARGET).obj
+	@$(TARGET).exe
+	@echo Process returns value %ERRORLEVEL% . . .
+	@del /F /S /Q $(TARGET).exe $(TARGET).obj 1> nul 2> nul || ver > nul
+
+clang: main.cpp rmv.hpp
 ifneq (,$(filter Windows%,$(OS)))
-	@$(MAIN)
-	@del /F /S /Q $(MAIN) 1> nul 2> nul || ver > nul
+	clang++ $< -o $(TARGET).exe -std=c++17 -O3 -I.
+	@$(TARGET).exe
+	@echo Process returns value %ERRORLEVEL% . . .
+	@del /F /S /Q $(TARGET).exe 1> nul 2> nul || ver > nul
 else
-	@chmod +x $(MAIN)
-	@$(MAIN)
-	@rm -rf $(MAIN) &> /dev/null
+	clang++ $< -o $(TARGET) -std=c++11 -O3 -I.
+	@chmod +x $(TARGET)
+	@$(TARGET)
+	@rm -rf $(TARGET) &> /dev/null
 endif
