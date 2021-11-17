@@ -7,9 +7,6 @@
 *.def
 *.dll
 *.exe
-tests/main
 
 # Directory
 .vscode
-tests/build
-catatan
