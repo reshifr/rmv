@@ -1,7 +1,4 @@
-#ifdef RMV_DEBUG
-# include <iostream>
-#endif
-
+#include <iostream>
 #include <cinttypes>
 #include <initializer_list>
 
@@ -30,32 +27,31 @@ class mv {
     using difference_type = std::ptrdiff_t;
 
   protected:
-    rlvlsize_type m_deep;
-    rblocksize_type m_free;
     size_type m_peek;
     pointer* m_root;
+    rlvlsize_type m_deep;
 
-    constexpr rblocksize_type block_size(void) {
+    constexpr rblocksize_type block_size(void) const noexcept {
       return static_cast<rblocksize_type>(1)<<E; }
-    constexpr rblocksize_type block_end(void) {
+    constexpr rblocksize_type block_mask(void) const noexcept {
       return block_size()-1; }
-    constexpr rblocksize_type block_count(size_type n) {
-      return (n>>E)+((n&block_end())==0 ? 0 : 1); }
-    constexpr size_type end(rlvlsize_type deep) {
+    constexpr rblocksize_type block_count(size_type n) const noexcept {
+      return (n>>E)+((n&block_mask())==0 ? 0 : 1); }
+    constexpr size_type end(rlvlsize_type deep) const noexcept {
       return (static_cast<size_type>(1)<<(E*(deep+1)))-1; }
-    constexpr size_type mask(rlvlsize_type lvl) {
-      return block_end()<<(E*lvl); }
-    constexpr rblocksize_type jump(rlvlsize_type lvl, size_type i) {
-      return (i&mask(lvl))>>(E*lvl); }
+    constexpr size_type mask(rlvlsize_type lvl) const noexcept {
+      return block_mask()<<(E*lvl); }
+    constexpr rblocksize_type jump(rlvlsize_type lvl,
+      size_type i) const noexcept { return (i&mask(lvl))>>(E*lvl); }
 
-    mv(void) : m_deep(), m_free(), m_peek(), m_root() {}
+    mv(void) : m_peek(), m_root(), m_deep() {}
     ~mv(void) {}
 
     void fill(pointer* root, rlvlsize_type lvl, rblocksize_type& n) {
       if( lvl==1 ) {
         for(auto i=jump(lvl, m_peek+block_size());
             n!=0 && i<block_size(); ++i, --n, m_peek+=block_size())
-          root[i] = reinterpret_cast<pointer>(new value_type[block_size()]());
+          root[i] = new value_type[block_size()]();
         return;
       }
       for(auto i=jump(lvl, m_peek+block_size());
@@ -70,31 +66,31 @@ class mv {
       if( m_peek==0 ) {
         m_root = reinterpret_cast<pointer*>(
           new value_type[block_size()]());
-        m_peek += block_end();
+        m_peek = block_mask();
         --n;
       }
       while( n!=0 ) {
         if( m_peek==end(m_deep) ) {
           auto block = m_root;
           m_root = new pointer[block_size()]();
-          *m_root = reinterpret_cast<pointer>(block);
+          m_root[0] = reinterpret_cast<pointer>(block);
           ++m_deep;
         }
         fill(m_root, m_deep, n);
       }
     }
 
-    void push(void) {
+    void push(pointer& cache) {
       if( m_peek==0 ) {
         m_root = reinterpret_cast<pointer*>(
-          new value_type[block_size()]());
-        m_peek += block_end();
+          cache=new value_type[block_size()]());
+        m_peek = block_mask();
         return;
       }
       auto block = m_root;
       if( m_peek==end(m_deep) ) {
         m_root = new pointer[block_size()]();
-        *m_root = reinterpret_cast<pointer>(block);
+        m_root[0] = reinterpret_cast<pointer>(block);
         block = m_root;
         ++m_deep;
       }
@@ -105,13 +101,11 @@ class mv {
           block[i] = reinterpret_cast<pointer>(new pointer[block_size()]());
         block = reinterpret_cast<pointer*>(block[i]);
       }
-      block[jump(1, m_peek)] =
-        reinterpret_cast<pointer>(new value_type[block_size()]());
+      block[jump(1, m_peek)] = cache = new value_type[block_size()]();
     }
 
-#ifdef RMV_DEBUG
   public:
-    void debug(const_pointer* root, rlvlsize_type deep) {
+    void debug(const_pointer* root, rlvlsize_type deep) const {
       if( root==nullptr )
         return;
       for(size_type i=0; i<(deep<<1); ++i)
@@ -130,7 +124,6 @@ class mv {
         debug(reinterpret_cast<const_pointer*>(
           const_cast<pointer>(root[i])), deep+1);
     }
-#endif
 };
 
 template <class V>
@@ -151,10 +144,8 @@ class mvi {
 
   public:
     mvi(void) : m_pos(), m_vector() {}
-    explicit mvi(V* vector) : m_pos(), m_vector(vector) {}
-    explicit mvi(V* vector, difference_type off) :
-      m_pos(off), m_vector(vector) {}
-
+    mvi(V* vector) : m_pos(), m_vector(vector) {}
+    mvi(V* vector, difference_type off) : m_pos(off), m_vector(vector) {}
     bool operator==(const mvi& it) const { return m_pos==it.m_pos; }
     bool operator!=(const mvi& it) const { return m_pos!=it.m_pos; }
     bool operator<(const mvi& it) const { return m_pos<it.m_pos; }
@@ -177,8 +168,8 @@ class rmvi : public mvi<V> {
     using iterator_category = typename mvi<V>::iterator_category;
 
     rmvi(void) : mvi<V>() {}
-    explicit rmvi(V* vector) : mvi<V>(vector, 0) {}
-    explicit rmvi(V* vector, difference_type off) : mvi<V>(vector, off) {}
+    rmvi(V* vector) : mvi<V>(vector, 0) {}
+    rmvi(V* vector, difference_type off) : mvi<V>(vector, off) {}
 
     reference operator*(void) const { return (*m_vector)[m_pos]; }
     pointer operator->(void) const { return &(*m_vector)[m_pos]; }
@@ -217,8 +208,8 @@ class rmvci : public mvi<V> {
     using iterator_category = typename mvi<V>::iterator_category;
 
     rmvci(void) : mvi<V>() {}
-    explicit rmvci(V* vector) : mvi<V>(vector, 0) {}
-    explicit rmvci(V* vector, difference_type off) : mvi<V>(vector, off) {}
+    rmvci(V* vector) : mvi<V>(vector, 0) {}
+    rmvci(V* vector, difference_type off) : mvi<V>(vector, off) {}
 
     const_reference operator*(void) const {
       return (*m_vector)[m_pos]; }
@@ -260,8 +251,9 @@ class rmvri : public mvi<V> {
     using iterator_category = typename mvi<V>::iterator_category;
 
     rmvri(void) : mvi<V>() {}
-    explicit rmvri(V* vector) : mvi<V>(vector, vector->size()-1) {}
-    explicit rmvri(V* vector, difference_type off) : mvi<V>(vector, off) {}
+    rmvri(V* vector) : mvi<V>(vector,
+      static_cast<difference_type>(vector->size())-1) {}
+    rmvri(V* vector, difference_type off) : mvi<V>(vector, off) {}
 
     reference operator*(void) const { return (*m_vector)[m_pos]; }
     pointer operator->(void) const { return &(*m_vector)[m_pos]; }
@@ -300,8 +292,9 @@ class rmvcri : public mvi<V> {
     using iterator_category = typename mvi<V>::iterator_category;
 
     rmvcri(void) : mvi<V>() {}
-    explicit rmvcri(V* vector) : mvi<V>(vector, vector->size()-1) {}
-    explicit rmvcri(V* vector, difference_type off) : mvi<V>(vector, off) {}
+    rmvcri(V* vector) : mvi<V>(vector,
+      static_cast<difference_type>(vector->size())-1) {}
+    rmvcri(V* vector, difference_type off) : mvi<V>(vector, off) {}
 
     const_reference operator*(void) const {
       return (*m_vector)[m_pos]; }
@@ -331,15 +324,16 @@ class rmvcri : public mvi<V> {
 
 template <std::uint8_t E, class T>
 class rcmv : public mv<E, T> {
+  using typename mv<E, T>::rlvldiff_type;
   using typename mv<E, T>::rlvlsize_type;
+  using typename mv<E, T>::rblockdiff_type;
   using typename mv<E, T>::rblocksize_type;
 
-  using mv<E, T>::m_deep;
-  using mv<E, T>::m_free;
   using mv<E, T>::m_peek;
   using mv<E, T>::m_root;
+  using mv<E, T>::m_deep;
   using mv<E, T>::block_size;
-  using mv<E, T>::block_end;
+  using mv<E, T>::block_mask;
   using mv<E, T>::block_count;
   using mv<E, T>::end;
   using mv<E, T>::mask;
@@ -361,10 +355,43 @@ class rcmv : public mv<E, T> {
     using reverse_iterator = rmvri<rcmv<E, T>>;
     using const_reverse_iterator = rmvcri<rcmv<E, T>>;
 
+  private:
+    rblocksize_type m_free;
+
+    pointer access_block(rblocksize_type index) {
+      index <<= E;
+      auto block = m_root;
+      for(auto lvl=m_deep; lvl>0; --lvl)
+        block = reinterpret_cast<pointer*>(block[jump(lvl, index)]);
+      return reinterpret_cast<pointer>(block);
+    }
+  
   public:
+    rcmv(void) : mv<E, T>(), m_free() {}
+    rcmv(size_type num) : rcmv() { extend(num); }
+    rcmv(const std::initializer_list<value_type>& init) : rcmv() {
+      extend(init.size());
+      auto num_block = init.size()>>E;
+      rblocksize_type i, index;
+      for(i=0; i<num_block; ++i) {
+        index = 0;
+        auto block = access_block(i);
+        auto end = init.begin()+(i<<E)+block_size();
+        for(auto p_elm=init.begin()+(i<<E); p_elm!=end; ++p_elm, ++index)
+          block[index] = *p_elm;
+      }
+      if( (init.size()&block_mask())==0 )
+        return;
+      index = 0;
+      auto block = access_block(i);
+      auto end = init.begin()+(i<<E)+(init.size()&block_mask());
+      for(auto p_elm=init.begin()+(i<<E); p_elm!=end; ++p_elm, ++index)
+        block[index] = *p_elm;
+    }
+
     void extend(size_type num) {
       auto new_size = size()+num;
-      if( num<=m_free ) {
+      if( m_free>num ) {
         m_free -= num;
         return;
       } else
@@ -374,16 +401,26 @@ class rcmv : public mv<E, T> {
       m_free = capacity()-new_size;
     }
 
-    void push_block(void) {
-      push();
+    void push_back(const reference val) {
+      if( m_free>0 ) {
+        operator[](m_peek-(--m_free)) = val;
+        return;
+      }
+      pointer cache;
+      push(cache);
+      cache[0] = val;
+      m_free = block_mask();
     }
-  
-  public:
-    rcmv(void) : mv<E, T>() {}
-    explicit rcmv(size_type num) : rcmv() { extend(num); }
-    rcmv(const std::initializer_list<value_type>& init) : rcmv() {
-      extend(init.size());
-      // for(auto elm : init)
+
+    void push_back(const value_type&& val) {
+      if( m_free>0 ) {
+        operator[](m_peek-(--m_free)) = val;
+        return;
+      }
+      pointer cache;
+      push(cache);
+      cache[0] = val;
+      m_free = block_mask();
     }
 
     reference operator[](size_type index) {
@@ -400,22 +437,40 @@ class rcmv : public mv<E, T> {
       return reinterpret_cast<pointer>(block)[jump(0, index)];
     }
 
-    size_type size(void) const { return capacity()-m_free; }
-    size_type capacity(void) const { return m_root==nullptr ? 0 : m_peek+1; }
+    size_type size(void) const noexcept {
+      return capacity()-m_free; }
+    size_type capacity(void) const noexcept {
+      return m_root==nullptr ? 0 : m_peek+1; }
 
-    rmvi<rcmv<E, T>> begin(void) { return rmvi<rcmv<E, T>>(this); }
-    rmvri<rcmv<E, T>> rbegin(void) { return rmvri<rcmv<E, T>>(this); }
-    rmvci<rcmv<E, T>> cbegin(void) { return rmvci<rcmv<E, T>>(this); }
-    rmvcri<rcmv<E, T>> crbegin(void) { return rmvcri<rcmv<E, T>>(this); }
+    iterator begin(void) noexcept {
+      return iterator(this); }
+    const_iterator begin(void) const noexcept {
+      return const_iterator(const_cast<rcmv<E, T>*>(this)); }
+    const_iterator cbegin(void) const noexcept {
+      return const_iterator(const_cast<rcmv<E, T>*>(this)); }
 
-    rmvi<rcmv<E, T>> end(void) { return rmvi<rcmv<E, T>>(this, size()); }
-    rmvri<rcmv<E, T>> rend(void) { return rmvri<rcmv<E, T>>(this, -1); }
-    rmvci<rcmv<E, T>> cend(void) { return rmvci<rcmv<E, T>>(this, size()); }
-    rmvcri<rcmv<E, T>> crend(void) { return rmvcri<rcmv<E, T>>(this, -1); }
+    iterator end(void) noexcept {
+      return iterator(this, size()); }
+    const_iterator end(void) const noexcept {
+      return const_iterator(const_cast<rcmv<E, T>*>(this), size()); }
+    const_iterator cend(void) const noexcept {
+      return const_iterator(const_cast<rcmv<E, T>*>(this), size()); }
 
-#ifdef RMV_DEBUG
+    reverse_iterator rbegin(void) noexcept {
+      return reverse_iterator(this); }
+    const_reverse_iterator rbegin(void) const noexcept {
+      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this)); }
+    const_reverse_iterator crbegin(void) const noexcept {
+      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this)); }
+    reverse_iterator rend(void) noexcept {
+      return reverse_iterator(this, -1); }
+    const_reverse_iterator rend(void) const noexcept {
+      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this), -1); }
+    const_reverse_iterator crend(void) const noexcept {
+      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this), -1); }
+
   public:
-    void debug(void) {
+    void debug(void) const {
       std::cout<<std::endl;
       std::cout<<"deep     = "<<static_cast<size_type>(m_deep)<<std::endl;
       std::cout<<"free     = "<<static_cast<size_type>(m_free)<<std::endl;
@@ -426,10 +481,11 @@ class rcmv : public mv<E, T> {
         static_cast<size_type>(end(m_deep)+1)<<std::endl;
       std::cout<<"root     = "<<
         static_cast<void*>(m_root)<<std::endl<<std::endl;
+#ifndef RMV_DEBUG
       mv<E, T>::debug(const_cast<const_pointer*>(m_root), 0);
+#endif
       std::cout<<std::endl;
     }
-#endif
 };
 
 }
