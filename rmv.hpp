@@ -44,10 +44,36 @@ class mv {
     constexpr rblocksize_type jump(rlvlsize_type lvl,
       size_type i) const noexcept { return (i&mask(lvl))>>(E*lvl); }
 
-    mv(void) : m_peek(), m_root(), m_deep() {}
-    ~mv(void) {}
+    mv(void) :
+      m_peek(),
+      m_root(),
+      m_deep() {}
 
-    void fill(pointer* root, rlvlsize_type lvl, rblocksize_type& n) {
+    ~mv(void) {
+      if( m_deep==0 ) {
+        delete[] reinterpret_cast<pointer>(m_root);
+        return;
+      }
+      recursive_del(m_root, m_deep);
+      delete[] m_root;
+    }
+
+  private:
+    void recursive_del(pointer* root, rlvlsize_type lvl) {
+      if( lvl==1 ) {
+        for(rblockdiff_type i=jump(lvl, m_peek);
+            i>=0; --i, m_peek-=block_size())
+          delete[] root[i];
+        return;
+      }
+      for(rblockdiff_type i=jump(lvl, m_peek); i>=0; --i) {
+        recursive_del(reinterpret_cast<pointer*>(root[i]), lvl-1);
+        delete[] reinterpret_cast<pointer*>(root[i]);
+      }
+    }
+
+    void recursive_fill(pointer* root,
+      rlvlsize_type lvl, rblocksize_type& n) {
       if( lvl==1 ) {
         for(auto i=jump(lvl, m_peek+block_size());
             n!=0 && i<block_size(); ++i, --n, m_peek+=block_size())
@@ -58,11 +84,32 @@ class mv {
           n!=0 && i<block_size(); ++i) {
         if( root[i]==nullptr )
           root[i] = reinterpret_cast<pointer>(new pointer[block_size()]());
-        fill(reinterpret_cast<pointer*>(root[i]), lvl-1, n);
+        recursive_fill(reinterpret_cast<pointer*>(root[i]), lvl-1, n);
       }
     }
 
-    void build(rblocksize_type n) {
+    bool recursive_reduce(pointer* root,
+      rlvlsize_type lvl, rblocksize_type& n) {
+      if( lvl==1 ) {
+        rblockdiff_type i=jump(lvl, m_peek);
+        for(; n!=0 && i>=0; --i, --n, m_peek-=block_size()) {
+          delete[] root[i];
+          root[i] = nullptr;
+        }
+        return i<0;
+      }
+      rblockdiff_type i=jump(lvl, m_peek);
+      for(; i>=0; --i) {
+        if( !recursive_reduce(reinterpret_cast<pointer*>(root[i]), lvl-1, n) )
+          return false;
+        delete[] reinterpret_cast<pointer*>(root[i]);
+        root[i] = nullptr;
+      }
+      return i<0;
+    }
+
+  protected:
+    void fill(rblocksize_type n) {
       if( m_peek==0 ) {
         m_root = reinterpret_cast<pointer*>(
           new value_type[block_size()]());
@@ -76,7 +123,7 @@ class mv {
           m_root[0] = reinterpret_cast<pointer>(block);
           ++m_deep;
         }
-        fill(m_root, m_deep, n);
+        recursive_fill(m_root, m_deep, n);
       }
     }
 
@@ -102,6 +149,10 @@ class mv {
         block = reinterpret_cast<pointer*>(block[i]);
       }
       block[jump(1, m_peek)] = cache = new value_type[block_size()]();
+    }
+
+    void reduce(rblocksize_type n) {
+      recursive_reduce(m_root, m_deep, n);
     }
 
   public:
@@ -339,8 +390,8 @@ class rcmv : public mv<E, T> {
   using mv<E, T>::mask;
   using mv<E, T>::jump;
   using mv<E, T>::fill;
-  using mv<E, T>::build;
   using mv<E, T>::push;
+  using mv<E, T>::reduce;
 
   public:
     using value_type = typename mv<E, T>::value_type;
@@ -367,7 +418,7 @@ class rcmv : public mv<E, T> {
     }
   
   public:
-    rcmv(void) : mv<E, T>(), m_free() {}
+    rcmv(void) : m_free() {}
     rcmv(size_type num) : rcmv() { extend(num); }
     rcmv(const std::initializer_list<value_type>& init) : rcmv() {
       extend(init.size());
@@ -397,7 +448,7 @@ class rcmv : public mv<E, T> {
       } else
         num -= m_free;
       auto num_block = block_count(num);
-      build(num_block);
+      fill(num_block);
       m_free = capacity()-new_size;
     }
 
