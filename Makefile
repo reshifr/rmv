@@ -40,3 +40,14 @@ else
 	@$(TARGET)
 	@rm -rf $(TARGET) &> /dev/null
 endif
+
+debug: main.cpp rmv.hpp
+	g++ -ggdb3 $< -o $(TARGET) -O3 -std=c++11 -I.
+	@chmod +x $(TARGET)
+	@valgrind \
+		--leak-check=full \
+		--leak-resolution=high \
+		--leak-check-heuristics=all \
+		--show-leak-kinds=all \
+		--track-origins=yes $(TARGET)
+	@rm -rf $(TARGET) &> /dev/null
