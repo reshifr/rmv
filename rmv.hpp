@@ -1,3 +1,6 @@
+#ifndef RSFR_RMV_H
+#define RSFR_RMV_H
+
 #include <iostream>
 #include <cinttypes>
 #include <initializer_list>
@@ -31,16 +34,16 @@ class mv {
     pointer* m_root;
     rlvlsize_type m_deep;
 
-    constexpr rblocksize_type block_size(void) const noexcept {
-      return static_cast<rblocksize_type>(1)<<E; }
-    constexpr rblocksize_type block_mask(void) const noexcept {
-      return block_size()-1; }
-    constexpr rblocksize_type block_count(size_type n) const noexcept {
-      return (n>>E)+((n&block_mask())==0 ? 0 : 1); }
-    constexpr size_type end(rlvlsize_type deep) const noexcept {
-      return (static_cast<size_type>(1)<<(E*(deep+1)))-1; }
-    constexpr size_type mask(rlvlsize_type lvl) const noexcept {
-      return block_mask()<<(E*lvl); }
+    constexpr rblocksize_type block_size(void) const noexcept
+      { return static_cast<rblocksize_type>(1)<<E; }
+    constexpr rblocksize_type block_mask(void) const noexcept
+      { return block_size()-1; }
+    constexpr rblocksize_type block_count(size_type n) const noexcept
+      { return (n>>E)+((n&block_mask())==0 ? 0 : 1); }
+    constexpr size_type end(rlvlsize_type deep) const noexcept
+      { return (static_cast<size_type>(1)<<(E*(deep+1)))-1; }
+    constexpr size_type mask(rlvlsize_type lvl) const noexcept
+      { return block_mask()<<(E*lvl); }
     constexpr rblocksize_type jump(rlvlsize_type lvl,
       size_type i) const noexcept { return (i&mask(lvl))>>(E*lvl); }
 
@@ -191,12 +194,11 @@ class mvi {
 
   protected:
     difference_type m_pos;
-    V* m_vector;
 
   public:
-    mvi(void) : m_pos(), m_vector() {}
-    mvi(V* vector) : m_pos(), m_vector(vector) {}
-    mvi(V* vector, difference_type off) : m_pos(off), m_vector(vector) {}
+    mvi(void) : m_pos() {}
+    mvi(difference_type off) : m_pos(off) {}
+
     bool operator==(const mvi& it) const { return m_pos==it.m_pos; }
     bool operator!=(const mvi& it) const { return m_pos!=it.m_pos; }
     bool operator<(const mvi& it) const { return m_pos<it.m_pos; }
@@ -208,7 +210,6 @@ class mvi {
 template <class V>
 class rmvi : public mvi<V> {
   using mvi<V>::m_pos;
-  using mvi<V>::m_vector;
 
   public:
     using value_type = typename mvi<V>::value_type;
@@ -218,9 +219,13 @@ class rmvi : public mvi<V> {
     using difference_type = typename mvi<V>::difference_type;
     using iterator_category = typename mvi<V>::iterator_category;
 
-    rmvi(void) : mvi<V>() {}
-    rmvi(V* vector) : mvi<V>(vector, 0) {}
-    rmvi(V* vector, difference_type off) : mvi<V>(vector, off) {}
+  private:
+    V* m_vector;
+
+  public:
+    rmvi(void) = default;
+    rmvi(V* vector) : m_vector(vector) {}
+    rmvi(V* vector, difference_type off) : mvi<V>(off), m_vector(vector) {}
 
     reference operator*(void) const { return (*m_vector)[m_pos]; }
     pointer operator->(void) const { return &(*m_vector)[m_pos]; }
@@ -231,150 +236,66 @@ class rmvi : public mvi<V> {
     rmvi& operator--(void) { --m_pos; return *this; }
     rmvi operator--(int) { return rmvi(m_vector, m_pos--); }
 
-    rmvi& operator+=(difference_type off) {
-      m_pos += off; return *this; }
-    rmvi operator+(difference_type off) const {
-      return rmvi(m_vector, m_pos+off); }
-    friend rmvi operator+(difference_type off, const rmvi& it) {
-      return rmvi(it.m_vector, off+it.m_pos); }
-    rmvi& operator-=(difference_type off) {
-      m_pos -= off; return *this; }
-    rmvi operator-(difference_type off) const {
-      return rmvi(m_vector, m_pos-off); }
-    difference_type operator-(const rmvi& it) const {
-      return m_pos-it.m_pos; }
+    rmvi& operator+=(difference_type off)
+      { m_pos += off; return *this; }
+    rmvi operator+(difference_type off) const
+      { return rmvi(m_vector, m_pos+off); }
+    friend rmvi operator+(difference_type off, const rmvi& it)
+      { return rmvi(it.m_vector, off+it.m_pos); }
+    rmvi& operator-=(difference_type off)
+      { m_pos -= off; return *this; }
+    rmvi operator-(difference_type off) const
+      { return rmvi(m_vector, m_pos-off); }
+    difference_type operator-(const rmvi& it) const
+      { return m_pos-it.m_pos; }
 };
 
 template <class V>
 class rmvci : public mvi<V> {
   using mvi<V>::m_pos;
-  using mvi<V>::m_vector;
 
   public:
     using value_type = typename mvi<V>::value_type;
-    using const_reference = typename mvi<V>::const_reference;
-    using const_pointer = typename mvi<V>::const_pointer;
+    using reference = typename mvi<V>::const_reference;
+    using pointer = typename mvi<V>::const_pointer;
     using size_type = typename mvi<V>::size_type;
     using difference_type = typename mvi<V>::difference_type;
     using iterator_category = typename mvi<V>::iterator_category;
 
-    rmvci(void) : mvi<V>() {}
-    rmvci(V* vector) : mvi<V>(vector, 0) {}
-    rmvci(V* vector, difference_type off) : mvi<V>(vector, off) {}
+  private:
+    const V* m_vector;
 
-    const_reference operator*(void) const {
-      return (*m_vector)[m_pos]; }
-    const_pointer operator->(void) const {
-      return &(*m_vector)[m_pos]; }
-    const_reference operator[](difference_type off) const {
-      return (*m_vector)[off]; }
+  public:
+    rmvci(void) = default;
+    rmvci(const V* vector) : m_vector(vector) {}
+    rmvci(const V* vector, difference_type off) :
+      mvi<V>(off), m_vector(vector) {}
+
+    reference operator*(void) const { return (*m_vector)[m_pos]; }
+    pointer operator->(void) const { return &(*m_vector)[m_pos]; }
+    reference operator[](difference_type off) const { return (*m_vector)[off]; }
 
     rmvci& operator++(void) { ++m_pos; return *this; }
     rmvci operator++(int) { return rmvci(m_vector, m_pos++); }
     rmvci& operator--(void) { --m_pos; return *this; }
     rmvci operator--(int) { return rmvci(m_vector, m_pos--); }
 
-    rmvci& operator+=(difference_type off) {
-      m_pos += off; return *this; }
-    rmvci operator+(difference_type off) const {
-      return rmvci(m_vector, m_pos+off); }
-    friend rmvci operator+(difference_type off, const rmvci& it) {
-      return rmvci(it.m_vector, off+it.m_pos); }
-    rmvci& operator-=(difference_type off) {
-      m_pos -= off; return *this; }
-    rmvci operator-(difference_type off) const {
-      return rmvci(m_vector, m_pos-off); }
-    difference_type operator-(const rmvci& it) const {
-      return m_pos-it.m_pos; }
-};
-
-template <class V>
-class rmvri : public mvi<V> {
-  using mvi<V>::m_pos;
-  using mvi<V>::m_vector;
-
-  public:
-    using value_type = typename mvi<V>::value_type;
-    using reference = typename mvi<V>::reference;
-    using pointer = typename mvi<V>::pointer;
-    using size_type = typename mvi<V>::size_type;
-    using difference_type = typename mvi<V>::difference_type;
-    using iterator_category = typename mvi<V>::iterator_category;
-
-    rmvri(void) : mvi<V>() {}
-    rmvri(V* vector) : mvi<V>(vector,
-      static_cast<difference_type>(vector->size())-1) {}
-    rmvri(V* vector, difference_type off) : mvi<V>(vector, off) {}
-
-    reference operator*(void) const { return (*m_vector)[m_pos]; }
-    pointer operator->(void) const { return &(*m_vector)[m_pos]; }
-    reference operator[](difference_type off) const { return (*m_vector)[off]; }
-
-    rmvri& operator++(void) { --m_pos; return *this; }
-    rmvri operator++(int) { return rmvri(m_vector, m_pos--); }
-    rmvri& operator--(void) { ++m_pos; return *this; }
-    rmvri operator--(int) { return rmvri(m_vector, m_pos++); }
-
-    rmvri& operator+=(difference_type off) {
-      m_pos -= off; return *this; }
-    rmvri operator+(difference_type off) const {
-      return rmvri(m_vector, m_pos-off); }
-    friend rmvri operator+(difference_type off, const rmvri& it) {
-      return rmvri(it.m_vector, off-it.m_pos); }
-    rmvri& operator-=(difference_type off) {
-      m_pos += off; return *this; }
-    rmvri operator-(difference_type off) const {
-      return rmvri(m_vector, m_pos+off); }
-    difference_type operator-(const rmvri& it) const {
-      return m_pos+it.m_pos; }
-};
-
-template <class V>
-class rmvcri : public mvi<V> {
-  using mvi<V>::m_pos;
-  using mvi<V>::m_vector;
-
-  public:
-    using value_type = typename mvi<V>::value_type;
-    using const_reference = typename mvi<V>::const_reference;
-    using const_pointer = typename mvi<V>::const_pointer;
-    using size_type = typename mvi<V>::size_type;
-    using difference_type = typename mvi<V>::difference_type;
-    using iterator_category = typename mvi<V>::iterator_category;
-
-    rmvcri(void) : mvi<V>() {}
-    rmvcri(V* vector) : mvi<V>(vector,
-      static_cast<difference_type>(vector->size())-1) {}
-    rmvcri(V* vector, difference_type off) : mvi<V>(vector, off) {}
-
-    const_reference operator*(void) const {
-      return (*m_vector)[m_pos]; }
-    const_pointer operator->(void) const {
-      return &(*m_vector)[m_pos]; }
-    const_reference operator[](difference_type off) const {
-      return (*m_vector)[off]; }
-
-    rmvcri& operator++(void) { --m_pos; return *this; }
-    rmvcri operator++(int) { return rmvcri(m_vector, m_pos--); }
-    rmvcri& operator--(void) { ++m_pos; return *this; }
-    rmvcri operator--(int) { return rmvcri(m_vector, m_pos++); }
-
-    rmvcri& operator+=(difference_type off) {
-      m_pos -= off; return *this; }
-    rmvcri operator+(difference_type off) const {
-      return rmvcri(m_vector, m_pos-off); }
-    friend rmvcri operator+(difference_type off, const rmvcri& it) {
-      return rmvcri(it.m_vector, off-it.m_pos); }
-    rmvcri& operator-=(difference_type off) {
-      m_pos += off; return *this; }
-    rmvcri operator-(difference_type off) const {
-      return rmvcri(m_vector, m_pos+off); }
-    difference_type operator-(const rmvcri& it) const {
-      return m_pos+it.m_pos; }
+    rmvci& operator+=(difference_type off)
+      { m_pos += off; return *this; }
+    rmvci operator+(difference_type off) const
+      { return rmvci(m_vector, m_pos+off); }
+    friend rmvci operator+(difference_type off, const rmvci& it)
+      { return rmvci(it.m_vector, off+it.m_pos); }
+    rmvci& operator-=(difference_type off)
+      { m_pos -= off; return *this; }
+    rmvci operator-(difference_type off) const
+      { return rmvci(m_vector, m_pos-off); }
+    difference_type operator-(const rmvci& it) const
+      { return m_pos-it.m_pos; }
 };
 
 template <std::uint8_t E, class T>
-class rcmv : public mv<E, T> {
+class rcmv : protected mv<E, T> {
   using typename mv<E, T>::rlvldiff_type;
   using typename mv<E, T>::rlvlsize_type;
   using typename mv<E, T>::rblockdiff_type;
@@ -403,8 +324,8 @@ class rcmv : public mv<E, T> {
     using difference_type = typename mv<E, T>::difference_type;
     using iterator = rmvi<rcmv<E, T>>;
     using const_iterator = rmvci<rcmv<E, T>>;
-    using reverse_iterator = rmvri<rcmv<E, T>>;
-    using const_reverse_iterator = rmvcri<rcmv<E, T>>;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
   private:
     rblocksize_type m_free;
@@ -452,7 +373,7 @@ class rcmv : public mv<E, T> {
       m_free = capacity()-new_size;
     }
 
-    void push_back(const reference val) {
+    void push_back(const_reference val) {
       if( m_free>0 ) {
         operator[](m_peek-(--m_free)) = val;
         return;
@@ -488,37 +409,36 @@ class rcmv : public mv<E, T> {
       return reinterpret_cast<pointer>(block)[jump(0, index)];
     }
 
-    size_type size(void) const noexcept {
-      return capacity()-m_free; }
-    size_type capacity(void) const noexcept {
-      return m_root==nullptr ? 0 : m_peek+1; }
+    size_type size(void) const noexcept
+      { return capacity()-m_free; }
+    size_type capacity(void) const noexcept
+      { return m_root==nullptr ? 0 : m_peek+1; }
 
-    iterator begin(void) noexcept {
-      return iterator(this); }
-    const_iterator begin(void) const noexcept {
-      return const_iterator(const_cast<rcmv<E, T>*>(this)); }
-    const_iterator cbegin(void) const noexcept {
-      return const_iterator(const_cast<rcmv<E, T>*>(this)); }
+    iterator begin(void) noexcept
+      { return iterator(this); }
+    const_iterator begin(void) const noexcept
+      { return this->cbegin(); }
+    const_iterator cbegin(void) const noexcept
+      { return const_iterator(this); }
+    iterator end(void) noexcept
+      { return iterator(this, size()); }
+    const_iterator end(void) const noexcept
+      { return this->cend(); }
+    const_iterator cend(void) const noexcept
+      { return const_iterator(this, size()); }
 
-    iterator end(void) noexcept {
-      return iterator(this, size()); }
-    const_iterator end(void) const noexcept {
-      return const_iterator(const_cast<rcmv<E, T>*>(this), size()); }
-    const_iterator cend(void) const noexcept {
-      return const_iterator(const_cast<rcmv<E, T>*>(this), size()); }
-
-    reverse_iterator rbegin(void) noexcept {
-      return reverse_iterator(this); }
-    const_reverse_iterator rbegin(void) const noexcept {
-      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this)); }
-    const_reverse_iterator crbegin(void) const noexcept {
-      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this)); }
-    reverse_iterator rend(void) noexcept {
-      return reverse_iterator(this, -1); }
-    const_reverse_iterator rend(void) const noexcept {
-      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this), -1); }
-    const_reverse_iterator crend(void) const noexcept {
-      return const_reverse_iterator(const_cast<rcmv<E, T>*>(this), -1); }
+    reverse_iterator rbegin(void) noexcept
+      { return reverse_iterator(this->end()); }
+    const_reverse_iterator rbegin(void) const noexcept
+      { return this->crbegin(); }
+    const_reverse_iterator crbegin(void) const noexcept
+      { return const_reverse_iterator(this->cend()); }
+    reverse_iterator rend(void) noexcept
+      { return reverse_iterator(this->begin()); }
+    const_reverse_iterator rend(void) const noexcept
+      { return this->crend(); }
+    const_reverse_iterator crend(void) const noexcept
+      { return const_reverse_iterator(this->cbegin()); }
 
   public:
     void debug(void) const {
@@ -540,3 +460,5 @@ class rcmv : public mv<E, T> {
 };
 
 }
+
+#endif /* RSFR_RMV_H */
