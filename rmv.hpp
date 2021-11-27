@@ -517,4 +517,3 @@ class rcmv : protected mv<E, T> {
 }
 
 #endif /* RSFR_RMV_H */
-
