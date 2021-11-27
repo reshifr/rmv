@@ -82,6 +82,8 @@ class mv {
       m_deep() {}
 
     ~mv(void) {
+      if( m_peek==0 )
+        return;
       if( m_deep==0 ) {
         delete[] reinterpret_cast<pointer>(m_root);
         return;
@@ -184,7 +186,27 @@ class mv {
     }
 
     void reduce(rblocksize_type n) {
-      recursive_reduce(m_root, m_deep, n);
+      if( n==0 || m_peek==0 )
+        return;
+      if( m_deep==0 ) {
+        delete[] reinterpret_cast<pointer>(m_root);
+        m_root = nullptr;
+        m_peek = 0;
+        return;
+      }
+      if( recursive_reduce(m_root, m_deep, n) ) {
+        delete[] m_root;
+        m_root = nullptr;
+        m_peek = m_deep = 0;
+        return;
+      }
+      while( m_peek<=end(m_deep-1) ) {
+        auto block = m_root;
+        m_root = reinterpret_cast<pointer*>(m_root[0]);
+        delete[] block;
+        if( --m_deep==0 )
+          return;
+      }
     }
 
   public:
@@ -422,6 +444,10 @@ class rcmv : protected mv<E, T> {
       push(cache);
       cache[0] = val;
       m_free = block_mask();
+    }
+
+    void shrink(size_type num) {
+      reduce(num);
     }
 
     reference operator[](size_type index) {
