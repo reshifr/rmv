@@ -41,7 +41,7 @@ class mv {
   public:
     using rlvldiff_type = std::int8_t;
     using rlvlsize_type = std::uint8_t;
-
+    
 #if SIZE_MAX == UINT64_MAX
     using rblockdiff_type = std::int32_t;
     using rblocksize_type = std::uint32_t;
@@ -67,8 +67,6 @@ class mv {
       { return static_cast<rblocksize_type>(1)<<E; }
     constexpr rblocksize_type block_mask(void) const noexcept
       { return block_size()-1; }
-    constexpr rblocksize_type block_count(size_type n) const noexcept
-      { return (n>>E)+((n&block_mask())==0 ? 0 : 1); }
     constexpr size_type end(rlvlsize_type deep) const noexcept
       { return (static_cast<size_type>(1)<<(E*(deep+1)))-1; }
     constexpr size_type mask(rlvlsize_type lvl) const noexcept
@@ -76,12 +74,12 @@ class mv {
     constexpr rblocksize_type jump(rlvlsize_type lvl,
       size_type i) const noexcept { return (i&mask(lvl))>>(E*lvl); }
 
-    mv(void) :
+    mv(void) noexcept :
       m_peek(),
       m_root(),
       m_deep() {}
 
-    ~mv(void) {
+    ~mv(void) noexcept {
       if( m_peek==0 )
         return;
       if( m_deep==0 ) {
@@ -93,7 +91,7 @@ class mv {
     }
 
   private:
-    void recursive_del(pointer* root, rlvlsize_type lvl) {
+    void recursive_del(pointer* root, rlvlsize_type lvl) noexcept {
       if( lvl==1 ) {
         for(rblockdiff_type i=jump(lvl, m_peek);
             i>=0; --i, m_peek-=block_size())
@@ -123,7 +121,7 @@ class mv {
     }
 
     bool recursive_reduce(pointer* root,
-      rlvlsize_type lvl, rblocksize_type& n) {
+      rlvlsize_type lvl, rblocksize_type& n) noexcept {
       if( lvl==1 ) {
         rblockdiff_type i=jump(lvl, m_peek);
         for(; n!=0 && i>=0; --i, --n, m_peek-=block_size()) {
@@ -161,12 +159,12 @@ class mv {
       }
     }
 
-    void push(pointer& cache) {
+    pointer push(void) {
       if( m_peek==0 ) {
-        m_root = reinterpret_cast<pointer*>(
-          cache=new value_type[block_size()]());
+        auto block = new value_type[block_size()]();
+        m_root = reinterpret_cast<pointer*>(block);
         m_peek = block_mask();
-        return;
+        return block;
       }
       auto block = m_root;
       if( m_peek==end(m_deep) ) {
@@ -182,10 +180,10 @@ class mv {
           block[i] = reinterpret_cast<pointer>(new pointer[block_size()]());
         block = reinterpret_cast<pointer*>(block[i]);
       }
-      block[jump(1, m_peek)] = cache = new value_type[block_size()]();
+      return block[jump(1, m_peek)]=new value_type[block_size()]();
     }
 
-    void reduce(rblocksize_type n) {
+    void reduce(rblocksize_type n) noexcept {
       if( n==0 || m_peek==0 )
         return;
       if( m_deep==0 ) {
@@ -247,15 +245,14 @@ class mvi {
     difference_type m_pos;
 
   public:
-    mvi(void) : m_pos() {}
-    mvi(difference_type off) : m_pos(off) {}
-
-    bool operator==(const mvi& it) const { return m_pos==it.m_pos; }
-    bool operator!=(const mvi& it) const { return m_pos!=it.m_pos; }
-    bool operator<(const mvi& it) const { return m_pos<it.m_pos; }
-    bool operator<=(const mvi& it) const { return m_pos<=it.m_pos; }
-    bool operator>(const mvi& it) const { return m_pos>it.m_pos; }
-    bool operator>=(const mvi& it) const { return m_pos>=it.m_pos; }
+    mvi(void) noexcept : m_pos() {}
+    mvi(difference_type off) noexcept : m_pos(off) {}
+    bool operator==(const mvi& it) const noexcept { return m_pos==it.m_pos; }
+    bool operator!=(const mvi& it) const noexcept { return m_pos!=it.m_pos; }
+    bool operator<(const mvi& it) const noexcept { return m_pos<it.m_pos; }
+    bool operator<=(const mvi& it) const noexcept { return m_pos<=it.m_pos; }
+    bool operator>(const mvi& it) const noexcept { return m_pos>it.m_pos; }
+    bool operator>=(const mvi& it) const noexcept { return m_pos>=it.m_pos; }
 };
 
 template <class V>
@@ -274,30 +271,34 @@ class rmvi : public mvi<V> {
     V* m_vector;
 
   public:
-    rmvi(void) = default;
-    rmvi(V* vector) : m_vector(vector) {}
-    rmvi(V* vector, difference_type off) : mvi<V>(off), m_vector(vector) {}
+    rmvi(void) noexcept = default;
+    rmvi(V* vector) noexcept : m_vector(vector) {}
+    rmvi(V* vector, difference_type off) noexcept :
+      mvi<V>(off), m_vector(vector) {}
 
-    reference operator*(void) const { return (*m_vector)[m_pos]; }
-    pointer operator->(void) const { return &(*m_vector)[m_pos]; }
-    reference operator[](difference_type off) const { return (*m_vector)[off]; }
+    reference operator*(void) const noexcept
+      { return (*m_vector)[m_pos]; }
+    pointer operator->(void) const noexcept
+      { return &(*m_vector)[m_pos]; }
+    reference operator[](difference_type off) const noexcept
+      { return (*m_vector)[off]; }
 
-    rmvi& operator++(void) { ++m_pos; return *this; }
-    rmvi operator++(int) { return rmvi(m_vector, m_pos++); }
-    rmvi& operator--(void) { --m_pos; return *this; }
-    rmvi operator--(int) { return rmvi(m_vector, m_pos--); }
+    rmvi& operator++(void) noexcept { ++m_pos; return *this; }
+    rmvi operator++(int) noexcept { return rmvi(m_vector, m_pos++); }
+    rmvi& operator--(void) noexcept { --m_pos; return *this; }
+    rmvi operator--(int) noexcept { return rmvi(m_vector, m_pos--); }
 
-    rmvi& operator+=(difference_type off)
+    rmvi& operator+=(difference_type off) noexcept
       { m_pos += off; return *this; }
-    rmvi operator+(difference_type off) const
+    rmvi operator+(difference_type off) const noexcept
       { return rmvi(m_vector, m_pos+off); }
-    friend rmvi operator+(difference_type off, const rmvi& it)
+    friend rmvi operator+(difference_type off, const rmvi& it) noexcept
       { return rmvi(it.m_vector, off+it.m_pos); }
-    rmvi& operator-=(difference_type off)
+    rmvi& operator-=(difference_type off) noexcept
       { m_pos -= off; return *this; }
-    rmvi operator-(difference_type off) const
+    rmvi operator-(difference_type off) const noexcept
       { return rmvi(m_vector, m_pos-off); }
-    difference_type operator-(const rmvi& it) const
+    difference_type operator-(const rmvi& it) const noexcept
       { return m_pos-it.m_pos; }
 };
 
@@ -317,31 +318,34 @@ class rmvci : public mvi<V> {
     const V* m_vector;
 
   public:
-    rmvci(void) = default;
-    rmvci(const V* vector) : m_vector(vector) {}
-    rmvci(const V* vector, difference_type off) :
+    rmvci(void) noexcept = default;
+    rmvci(const V* vector) noexcept : m_vector(vector) {}
+    rmvci(const V* vector, difference_type off) noexcept :
       mvi<V>(off), m_vector(vector) {}
 
-    reference operator*(void) const { return (*m_vector)[m_pos]; }
-    pointer operator->(void) const { return &(*m_vector)[m_pos]; }
-    reference operator[](difference_type off) const { return (*m_vector)[off]; }
+    reference operator*(void) const noexcept
+      { return (*m_vector)[m_pos]; }
+    pointer operator->(void) const noexcept
+      { return &(*m_vector)[m_pos]; }
+    reference operator[](difference_type off) const noexcept
+      { return (*m_vector)[off]; }
 
-    rmvci& operator++(void) { ++m_pos; return *this; }
-    rmvci operator++(int) { return rmvci(m_vector, m_pos++); }
-    rmvci& operator--(void) { --m_pos; return *this; }
-    rmvci operator--(int) { return rmvci(m_vector, m_pos--); }
+    rmvci& operator++(void) noexcept { ++m_pos; return *this; }
+    rmvci operator++(int) noexcept { return rmvci(m_vector, m_pos++); }
+    rmvci& operator--(void) noexcept { --m_pos; return *this; }
+    rmvci operator--(int) noexcept { return rmvci(m_vector, m_pos--); }
 
-    rmvci& operator+=(difference_type off)
+    rmvci& operator+=(difference_type off) noexcept
       { m_pos += off; return *this; }
-    rmvci operator+(difference_type off) const
+    rmvci operator+(difference_type off) const noexcept
       { return rmvci(m_vector, m_pos+off); }
-    friend rmvci operator+(difference_type off, const rmvci& it)
+    friend rmvci operator+(difference_type off, const rmvci& it) noexcept
       { return rmvci(it.m_vector, off+it.m_pos); }
-    rmvci& operator-=(difference_type off)
+    rmvci& operator-=(difference_type off) noexcept
       { m_pos -= off; return *this; }
-    rmvci operator-(difference_type off) const
+    rmvci operator-(difference_type off) const noexcept
       { return rmvci(m_vector, m_pos-off); }
-    difference_type operator-(const rmvci& it) const
+    difference_type operator-(const rmvci& it) const noexcept
       { return m_pos-it.m_pos; }
 };
 
@@ -357,7 +361,6 @@ class rcmv : protected mv<E, T> {
   using mv<E, T>::m_deep;
   using mv<E, T>::block_size;
   using mv<E, T>::block_mask;
-  using mv<E, T>::block_count;
   using mv<E, T>::end;
   using mv<E, T>::mask;
   using mv<E, T>::jump;
@@ -381,7 +384,7 @@ class rcmv : protected mv<E, T> {
   private:
     rblocksize_type m_free;
 
-    pointer access_block(rblocksize_type index) {
+    pointer access_block(rblocksize_type index) noexcept {
       index <<= E;
       auto block = m_root;
       for(auto lvl=m_deep; lvl>0; --lvl)
@@ -390,7 +393,7 @@ class rcmv : protected mv<E, T> {
     }
   
   public:
-    rcmv(void) : m_free() {}
+    rcmv(void) noexcept : m_free() {}
     rcmv(size_type num) : rcmv() { extend(num); }
     rcmv(const std::initializer_list<value_type>& init) : rcmv() {
       extend(init.size());
@@ -419,45 +422,46 @@ class rcmv : protected mv<E, T> {
         return;
       } else
         num -= m_free;
-      auto num_block = block_count(num);
+      rblocksize_type num_block = (num>>E)+((num&block_mask())==0 ? 0 : 1);
       fill(num_block);
       m_free = capacity()-new_size;
     }
 
     void push_back(const_reference val) {
+      std::cout<<"const&"<<std::endl;
       if( m_free>0 ) {
         operator[](m_peek-(--m_free)) = val;
         return;
       }
-      pointer cache;
-      push(cache);
-      cache[0] = val;
+      auto block = push();
+      block[0] = val;
       m_free = block_mask();
     }
 
-    void push_back(const value_type&& val) {
+    void push_back(value_type&& val) {
+      std::cout<<"&&"<<std::endl;
       if( m_free>0 ) {
-        operator[](m_peek-(--m_free)) = val;
+        // operator[](m_peek-(--m_free)) = val;
+        operator[](m_peek-(--m_free)) = std::move(val);
         return;
       }
-      pointer cache;
-      push(cache);
-      cache[0] = val;
+      auto block = push();
+      block[0] = val;
       m_free = block_mask();
     }
 
-    void shrink(size_type num) {
+    void shrink(size_type num) noexcept {
       reduce(num);
     }
 
-    reference operator[](size_type index) {
+    reference operator[](size_type index) noexcept {
       auto block = m_root;
       for(auto lvl=m_deep; lvl>0; --lvl)
         block = reinterpret_cast<pointer*>(block[jump(lvl, index)]);
       return reinterpret_cast<pointer>(block)[jump(0, index)];
     }
 
-    const_reference operator[](size_type index) const {
+    const_reference operator[](size_type index) const noexcept {
       auto block = m_root;
       for(auto lvl=m_deep; lvl>0; --lvl)
         block = reinterpret_cast<pointer*>(block[jump(lvl, index)]);
