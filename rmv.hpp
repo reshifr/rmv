@@ -30,202 +30,267 @@
 #ifndef RSFR_RMV_H
 #define RSFR_RMV_H
 
+#include <limits>
 #include <iostream>
-#include <cinttypes>
+#include <type_traits>
 #include <initializer_list>
 
 namespace rsfr {
 
-template <std::uint8_t E, class T>
+template <std::uint8_t Exp, class Tp>
 class mv {
   public:
-    using rlvldiff_type = std::int8_t;
-    using rlvlsize_type = std::uint8_t;
-    
-#if SIZE_MAX == UINT64_MAX
-    using rblockdiff_type = std::int32_t;
-    using rblocksize_type = std::uint32_t;
-#elif SIZE_MAX == UINT32_MAX
-    using rblockdiff_type = std::int16_t;
-    using rblocksize_type = std::uint16_t;
-#endif
-
-    using value_type = T;
-    using reference = T&;
-    using const_reference = const T&;
-    using pointer = T*;
-    using const_pointer = const T*;
+    using value_type = Tp;
+    using reference = Tp&;
+    using const_reference = const Tp&;
+    using pointer = Tp*;
+    using const_pointer = const Tp*;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
 
+    using lvldiff_type = std::int8_t;
+    using lvlsize_type = std::uint8_t;
+    using blocksize_type = typename std::conditional<
+      std::numeric_limits<size_type>::max()==
+      std::numeric_limits<std::uint64_t>::max(),
+      std::uint32_t, std::uint16_t>::type;
+    using blockdiff_type = typename std::conditional<
+      std::numeric_limits<difference_type>::max()==
+      std::numeric_limits<std::int64_t>::max(),
+      std::int32_t, std::int16_t>::type;
+
+  private:
+    template <class Blk>
+    static void block_dlloc(Blk block) { delete[] block; }
+    template <class Elm>
+    static Elm* block_alloc(void) { return new Elm[block_size()](); }
+
   protected:
     size_type m_peek;
-    pointer* m_root;
-    rlvlsize_type m_deep;
+    union mvb {
+      Tp* val;
+      Tp** index;
+      Tp*** pindex;
+    } m_root;
+    lvlsize_type m_deep;
 
-    constexpr rblocksize_type block_size(void) const noexcept
-      { return static_cast<rblocksize_type>(1)<<E; }
-    constexpr rblocksize_type block_mask(void) const noexcept
+    static consteval blocksize_type
+      block_size(void) noexcept
+      { return static_cast<blocksize_type>(1)<<Exp; }
+    static consteval blocksize_type
+      block_mask(void) noexcept
       { return block_size()-1; }
-    constexpr size_type end(rlvlsize_type deep) const noexcept
-      { return (static_cast<size_type>(1)<<(E*(deep+1)))-1; }
-    constexpr size_type mask(rlvlsize_type lvl) const noexcept
-      { return block_mask()<<(E*lvl); }
-    constexpr rblocksize_type jump(rlvlsize_type lvl,
-      size_type i) const noexcept { return (i&mask(lvl))>>(E*lvl); }
+    static constexpr size_type
+      end(lvlsize_type deep) noexcept
+      { return (static_cast<size_type>(1)<<(Exp*(deep+1)))-1; }
+    static constexpr size_type
+      mask(lvlsize_type lvl) noexcept
+      { return block_mask()<<(Exp*lvl); }
+    static constexpr blocksize_type
+      jump(lvlsize_type lvl, size_type i) noexcept
+      { return static_cast<blocksize_type>(i&mask(lvl))>>(Exp*lvl); }
 
     mv(void) noexcept :
       m_peek(),
       m_root(),
       m_deep() {}
 
-    ~mv(void) noexcept {
+    ~mv(void) {
       if( m_peek==0 )
         return;
       if( m_deep==0 ) {
-        delete[] reinterpret_cast<pointer>(m_root);
+        block_dlloc(m_root.val);
         return;
       }
       recursive_del(m_root, m_deep);
-      delete[] m_root;
+      block_dlloc(m_root.index);
     }
 
   private:
-    void recursive_del(pointer* root, rlvlsize_type lvl) noexcept {
+    /**
+     * @brief   Destroy tree.
+     * 
+     * Leaving only the block of index.
+     * 
+     * @param   root   Root union
+     * @param   lvl    Level of tree
+     */
+    void recursive_del(mvb root, lvlsize_type lvl) {
       if( lvl==1 ) {
-        for(rblockdiff_type i=jump(lvl, m_peek);
+        // dealloc block of value
+        for(blockdiff_type i=jump(lvl, m_peek);
             i>=0; --i, m_peek-=block_size())
-          delete[] root[i];
+          block_dlloc(root.index[i]);
         return;
       }
-      for(rblockdiff_type i=jump(lvl, m_peek); i>=0; --i) {
-        recursive_del(reinterpret_cast<pointer*>(root[i]), lvl-1);
-        delete[] reinterpret_cast<pointer*>(root[i]);
+      // dealloc block of index
+      for(blockdiff_type i=jump(lvl, m_peek); i>=0; --i) {
+        recursive_del({.index=root.pindex[i]}, lvl-1);
+        block_dlloc(root.pindex[i]);
       }
     }
 
-    void recursive_fill(pointer* root,
-      rlvlsize_type lvl, rblocksize_type& n) {
+    /**
+     * @brief   Fill tree.
+     * 
+     * Just fills the tree with blocks, without increasing the
+     * height.
+     * 
+     * @param   root   Root union
+     * @param   lvl    Level of tree
+     * @param   n      Num of blocks
+     */
+    void recursive_fill(mvb root,
+      lvlsize_type lvl, blocksize_type& n) {
       if( lvl==1 ) {
+        // alloc block of value
         for(auto i=jump(lvl, m_peek+block_size());
             n!=0 && i<block_size(); ++i, --n, m_peek+=block_size())
-          root[i] = new value_type[block_size()]();
+          root.index[i] = block_alloc<Tp>();
         return;
       }
+      // alloc block of index
       for(auto i=jump(lvl, m_peek+block_size());
           n!=0 && i<block_size(); ++i) {
-        if( root[i]==nullptr )
-          root[i] = reinterpret_cast<pointer>(new pointer[block_size()]());
-        recursive_fill(reinterpret_cast<pointer*>(root[i]), lvl-1, n);
+        if( root.pindex[i]==nullptr )
+          root.pindex[i] = block_alloc<Tp*>();
+        recursive_fill({.index=root.pindex[i]}, lvl-1, n);
       }
     }
 
-    bool recursive_reduce(pointer* root,
-      rlvlsize_type lvl, rblocksize_type& n) noexcept {
+    /**
+     * @brief   Reduce tree.
+     * 
+     * @param   root   Root union
+     * @param   lvl    Level of tree
+     * @param   n      Num of blocks
+     * 
+     * @return  - True, the tree must be destroyed, leaving only
+     *            the block of index.
+     *          - False, the tree is reduced but height is not
+     *            reduced.
+     */
+    bool recursive_reduce(mvb root,
+      lvlsize_type lvl, blocksize_type& n) {
       if( lvl==1 ) {
-        rblockdiff_type i=jump(lvl, m_peek);
+        blockdiff_type i=jump(lvl, m_peek);
+        // dealloc block of value
         for(; n!=0 && i>=0; --i, --n, m_peek-=block_size()) {
-          delete[] root[i];
-          root[i] = nullptr;
+          block_dlloc(root.index[i]);
+          root.index[i] = nullptr;
         }
         return i<0;
       }
-      rblockdiff_type i=jump(lvl, m_peek);
+      blockdiff_type i=jump(lvl, m_peek);
+      // dealloc block of index
       for(; i>=0; --i) {
-        if( !recursive_reduce(reinterpret_cast<pointer*>(root[i]), lvl-1, n) )
+        if( !recursive_reduce({.index=root.pindex[i]}, lvl-1, n) )
           return false;
-        delete[] reinterpret_cast<pointer*>(root[i]);
-        root[i] = nullptr;
+        block_dlloc(root.pindex[i]);
+        root.pindex[i] = nullptr;
       }
       return i<0;
     }
 
   protected:
-    void fill(rblocksize_type n) {
+    void fill(blocksize_type n) {
+      // if the tree is empty, alloc block of value as root
       if( m_peek==0 ) {
-        m_root = reinterpret_cast<pointer*>(
-          new value_type[block_size()]());
+        m_root.val = block_alloc<Tp>();
         m_peek = block_mask();
         --n;
       }
       while( n!=0 ) {
+        // if the tree is not fit,
+        // increase the tree height with alloc block of index
         if( m_peek==end(m_deep) ) {
           auto block = m_root;
-          m_root = new pointer[block_size()]();
-          m_root[0] = reinterpret_cast<pointer>(block);
+          m_root.index = block_alloc<Tp*>();
+          m_root.pindex[0] = block.index;
           ++m_deep;
         }
+        // fill the tree with blocks
         recursive_fill(m_root, m_deep, n);
       }
     }
-
-    pointer push(void) {
+    
+    Tp* push(void) {
+      // if the tree is empty, alloc block of value as root
       if( m_peek==0 ) {
-        auto block = new value_type[block_size()]();
-        m_root = reinterpret_cast<pointer*>(block);
+        m_root.val = block_alloc<Tp>();
         m_peek = block_mask();
-        return block;
+        return m_root.val;
       }
       auto block = m_root;
+      // if the tree is not enough,
+      // increase the height with alloc block of index
       if( m_peek==end(m_deep) ) {
-        m_root = new pointer[block_size()]();
-        m_root[0] = reinterpret_cast<pointer>(block);
+        m_root.index = block_alloc<Tp*>();
+        m_root.pindex[0] = block.index;
         block = m_root;
         ++m_deep;
       }
       m_peek += block_size();
+      // fill the block of index with alloc block of index
       for(auto lvl=m_deep; lvl>1; --lvl) {
         auto i = jump(lvl, m_peek);
-        if( block[i]==nullptr )
-          block[i] = reinterpret_cast<pointer>(new pointer[block_size()]());
-        block = reinterpret_cast<pointer*>(block[i]);
+        if( block.pindex[i]==nullptr )
+          block.pindex[i] = block_alloc<Tp*>();
+        block.index = block.pindex[i];
       }
-      return block[jump(1, m_peek)]=new value_type[block_size()]();
+      // alloc block of value
+      return block.index[jump(1, m_peek)]=block_alloc<Tp>();
     }
 
-    void reduce(rblocksize_type n) noexcept {
+    void reduce(blocksize_type n) {
       if( n==0 || m_peek==0 )
         return;
+      // if only block of value, dealloc block of value
       if( m_deep==0 ) {
-        delete[] reinterpret_cast<pointer>(m_root);
-        m_root = nullptr;
+        block_dlloc(m_root.val);
+        m_root.val = nullptr;
         m_peek = 0;
         return;
       }
+      // if the tree need to be destroyed, dealloc block of index
       if( recursive_reduce(m_root, m_deep, n) ) {
-        delete[] m_root;
-        m_root = nullptr;
+        block_dlloc(m_root.index);
+        m_root.index = nullptr;
         m_peek = m_deep = 0;
         return;
       }
+      // if the tree doesn't need to be destroyed,
+      // reduce the height with dealloc block of index
       while( m_peek<=end(m_deep-1) ) {
         auto block = m_root;
-        m_root = reinterpret_cast<pointer*>(m_root[0]);
-        delete[] block;
+        m_root.index = m_root.pindex[0];
+        block_dlloc(block.index);
         if( --m_deep==0 )
           return;
       }
     }
 
   public:
-    void debug(const_pointer* root, rlvlsize_type deep) const {
-      if( root==nullptr )
+    void debug(mvb root, lvlsize_type deep) const {
+      if( root.val==nullptr )
         return;
-      for(size_type i=0; i<(deep<<1); ++i)
+      for(size_type i=0; i<(size_type)(deep<<1); ++i)
         std::cout<<" ";
       std::cout<<"|";
       if( deep==m_deep ) {
-        for(rblocksize_type i=0; i<block_size(); ++i)
-          std::cout<<reinterpret_cast<const_pointer>(root)[i]<<"|";
+        // iterating block of value
+        for(blocksize_type i=0; i<block_size(); ++i)
+          std::cout<<root.val[i]<<"|";
         std::cout<<std::endl;
         return;
       }
-      for(rblocksize_type i=0; i<block_size(); ++i)
-        std::cout<<(static_cast<bool>(root[i]) ? "=" : " ")<<"|";
+      // iterating block of index
+      for(blocksize_type i=0; i<block_size(); ++i)
+        std::cout<<(static_cast<bool>(root.pindex[i]) ? "=" : " ")<<"|";
       std::cout<<std::endl;
-      for(rblocksize_type i=0; i<block_size(); ++i)
-        debug(reinterpret_cast<const_pointer*>(
-          const_cast<pointer>(root[i])), deep+1);
+      // block of index call each element
+      for(blocksize_type i=0; i<block_size(); ++i)
+        debug({.index=root.pindex[i]}, deep+1);
     }
 };
 
@@ -349,70 +414,72 @@ class rmvci : public mvi<V> {
       { return m_pos-it.m_pos; }
 };
 
-template <std::uint8_t E, class T>
-class rcmv : protected mv<E, T> {
-  using typename mv<E, T>::rlvldiff_type;
-  using typename mv<E, T>::rlvlsize_type;
-  using typename mv<E, T>::rblockdiff_type;
-  using typename mv<E, T>::rblocksize_type;
+template <std::uint8_t Exp, class Tp>
+class rpmv : protected mv<Exp, Tp> {
+  using typename mv<Exp, Tp>::lvldiff_type;
+  using typename mv<Exp, Tp>::lvlsize_type;
+  using typename mv<Exp, Tp>::blockdiff_type;
+  using typename mv<Exp, Tp>::blocksize_type;
 
-  using mv<E, T>::m_peek;
-  using mv<E, T>::m_root;
-  using mv<E, T>::m_deep;
-  using mv<E, T>::block_size;
-  using mv<E, T>::block_mask;
-  using mv<E, T>::end;
-  using mv<E, T>::mask;
-  using mv<E, T>::jump;
-  using mv<E, T>::fill;
-  using mv<E, T>::push;
-  using mv<E, T>::reduce;
+  using mv<Exp, Tp>::m_peek;
+  using mv<Exp, Tp>::m_root;
+  using mv<Exp, Tp>::m_deep;
+  using mv<Exp, Tp>::block_size;
+  using mv<Exp, Tp>::block_mask;
+  using mv<Exp, Tp>::end;
+  using mv<Exp, Tp>::mask;
+  using mv<Exp, Tp>::jump;
+  using mv<Exp, Tp>::fill;
+  using mv<Exp, Tp>::push;
+  using mv<Exp, Tp>::reduce;
 
   public:
-    using value_type = typename mv<E, T>::value_type;
-    using reference = typename mv<E, T>::reference;
-    using const_reference = typename mv<E, T>::const_reference;
-    using pointer = typename mv<E, T>::pointer;
-    using const_pointer = typename mv<E, T>::const_pointer;
-    using size_type = typename mv<E, T>::size_type;
-    using difference_type = typename mv<E, T>::difference_type;
-    using iterator = rmvi<rcmv<E, T>>;
-    using const_iterator = rmvci<rcmv<E, T>>;
+    using value_type = typename mv<Exp, Tp>::value_type;
+    using reference = typename mv<Exp, Tp>::reference;
+    using const_reference = typename mv<Exp, Tp>::const_reference;
+    using pointer = typename mv<Exp, Tp>::pointer;
+    using const_pointer = typename mv<Exp, Tp>::const_pointer;
+    using size_type = typename mv<Exp, Tp>::size_type;
+    using difference_type = typename mv<Exp, Tp>::difference_type;
+    using iterator = rmvi<rpmv<Exp, Tp>>;
+    using const_iterator = rmvci<rpmv<Exp, Tp>>;
     using reverse_iterator = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
   private:
-    rblocksize_type m_free;
-
-    pointer access_block(rblocksize_type index) noexcept {
-      index <<= E;
-      auto block = m_root;
-      for(auto lvl=m_deep; lvl>0; --lvl)
-        block = reinterpret_cast<pointer*>(block[jump(lvl, index)]);
-      return reinterpret_cast<pointer>(block);
-    }
+    blocksize_type m_free;
   
   public:
-    rcmv(void) noexcept : m_free() {}
-    rcmv(size_type num) : rcmv() { extend(num); }
-    rcmv(const std::initializer_list<value_type>& init) : rcmv() {
-      extend(init.size());
-      auto num_block = init.size()>>E;
-      rblocksize_type i, index;
-      for(i=0; i<num_block; ++i) {
-        index = 0;
-        auto block = access_block(i);
-        auto end = init.begin()+(i<<E)+block_size();
-        for(auto p_elm=init.begin()+(i<<E); p_elm!=end; ++p_elm, ++index)
-          block[index] = *p_elm;
-      }
-      if( (init.size()&block_mask())==0 )
+    rpmv(void) noexcept : m_free() {}
+    rpmv(size_type num) : rpmv() { extend(num); }
+
+    template <class InIt>
+    rpmv(InIt first, InIt last) : rpmv() {
+      return;
+    }
+
+    // Modifiers
+
+    void push_back(const Tp& val) {
+      // std::cout<<"const&"<<std::endl;
+      if( m_free>0 ) {
+        (*this)[m_peek-(--m_free)] = val;
         return;
-      index = 0;
-      auto block = access_block(i);
-      auto end = init.begin()+(i<<E)+(init.size()&block_mask());
-      for(auto p_elm=init.begin()+(i<<E); p_elm!=end; ++p_elm, ++index)
-        block[index] = *p_elm;
+      }
+      auto cache = push();
+      cache[0] = val;
+      m_free = block_mask();
+    }
+
+    void push_back(Tp&& val) {
+      // std::cout<<"&&"<<std::endl;
+      if( m_free>0 ) {
+        (*this)[m_peek-(--m_free)] = std::move(val);
+        return;
+      }
+      auto cache = push();
+      cache[0] = std::move(val);
+      m_free = block_mask();
     }
 
     void extend(size_type num) {
@@ -422,97 +489,74 @@ class rcmv : protected mv<E, T> {
         return;
       } else
         num -= m_free;
-      rblocksize_type num_block = (num>>E)+((num&block_mask())==0 ? 0 : 1);
+      blocksize_type num_block = (num>>Exp)+((num&block_mask())==0 ? 0 : 1);
       fill(num_block);
       m_free = capacity()-new_size;
     }
 
-    void push_back(const_reference val) {
-      std::cout<<"const&"<<std::endl;
-      if( m_free>0 ) {
-        operator[](m_peek-(--m_free)) = val;
-        return;
-      }
-      auto block = push();
-      block[0] = val;
-      m_free = block_mask();
-    }
-
-    void push_back(value_type&& val) {
-      std::cout<<"&&"<<std::endl;
-      if( m_free>0 ) {
-        // operator[](m_peek-(--m_free)) = val;
-        operator[](m_peek-(--m_free)) = std::move(val);
-        return;
-      }
-      auto block = push();
-      block[0] = val;
-      m_free = block_mask();
-    }
-
-    void shrink(size_type num) noexcept {
-      reduce(num);
-    }
+    // Element Access
 
     reference operator[](size_type index) noexcept {
       auto block = m_root;
       for(auto lvl=m_deep; lvl>0; --lvl)
-        block = reinterpret_cast<pointer*>(block[jump(lvl, index)]);
-      return reinterpret_cast<pointer>(block)[jump(0, index)];
+        block.index = block.pindex[jump(lvl, index)];
+      return block.val[jump(0, index)];
     }
 
     const_reference operator[](size_type index) const noexcept {
       auto block = m_root;
       for(auto lvl=m_deep; lvl>0; --lvl)
-        block = reinterpret_cast<pointer*>(block[jump(lvl, index)]);
-      return reinterpret_cast<pointer>(block)[jump(0, index)];
+        block.index = block.pindex[jump(lvl, index)];
+      return block.val[jump(0, index)];
     }
+
+    // Capacity
 
     size_type size(void) const noexcept
       { return capacity()-m_free; }
     size_type capacity(void) const noexcept
-      { return m_root==nullptr ? 0 : m_peek+1; }
+      { return m_root.val==nullptr ? 0 : m_peek+1; }
+
+    // Iterators
 
     iterator begin(void) noexcept
       { return iterator(this); }
     const_iterator begin(void) const noexcept
-      { return this->cbegin(); }
+      { return cbegin(); }
     const_iterator cbegin(void) const noexcept
       { return const_iterator(this); }
     iterator end(void) noexcept
       { return iterator(this, size()); }
     const_iterator end(void) const noexcept
-      { return this->cend(); }
+      { return cend(); }
     const_iterator cend(void) const noexcept
       { return const_iterator(this, size()); }
 
     reverse_iterator rbegin(void) noexcept
-      { return reverse_iterator(this->end()); }
+      { return reverse_iterator(end()); }
     const_reverse_iterator rbegin(void) const noexcept
-      { return this->crbegin(); }
+      { return crbegin(); }
     const_reverse_iterator crbegin(void) const noexcept
-      { return const_reverse_iterator(this->cend()); }
+      { return const_reverse_iterator(cend()); }
     reverse_iterator rend(void) noexcept
-      { return reverse_iterator(this->begin()); }
+      { return reverse_iterator(begin()); }
     const_reverse_iterator rend(void) const noexcept
-      { return this->crend(); }
+      { return crend(); }
     const_reverse_iterator crend(void) const noexcept
-      { return const_reverse_iterator(this->cbegin()); }
+      { return const_reverse_iterator(cbegin()); }
 
   public:
     void debug(void) const {
       std::cout<<std::endl;
-      std::cout<<"deep     = "<<static_cast<size_type>(m_deep)<<std::endl;
-      std::cout<<"free     = "<<static_cast<size_type>(m_free)<<std::endl;
-      std::cout<<"peek     = "<<static_cast<size_type>(m_peek)<<std::endl;
-      std::cout<<"size     = "<<static_cast<size_type>(size())<<std::endl;
-      std::cout<<"capacity = "<<static_cast<size_type>(capacity())<<std::endl;
-      std::cout<<"max      = "<<
-        static_cast<size_type>(end(m_deep)+1)<<std::endl;
-      std::cout<<"root     = "<<
-        static_cast<void*>(m_root)<<std::endl<<std::endl;
+      std::cout<<"deep     = "<<(size_type)m_deep<<std::endl;
+      std::cout<<"free     = "<<(size_type)m_free<<std::endl;
+      std::cout<<"peek     = "<<(size_type)m_peek<<std::endl;
+      std::cout<<"size     = "<<(size_type)size()<<std::endl;
+      std::cout<<"capacity = "<<(size_type)capacity()<<std::endl;
+      std::cout<<"max      = "<<(size_type)(end(m_deep)+1)<<std::endl;
+      std::cout<<"root     = "<<m_root.val<<std::endl<<std::endl;
 #ifndef RMV_DEBUG
-      mv<E, T>::debug(const_cast<const_pointer*>(m_root), 0);
+      mv<Exp, Tp>::debug(m_root, 0);
 #endif
       std::cout<<std::endl;
     }
