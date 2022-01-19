@@ -55,13 +55,14 @@ else
 	@rm -rf $(TARGET) &> /dev/null
 endif
 
-valgrind: main.cpp rmv.hpp
+memcheck: main.cpp rmv.hpp
 ifneq (,$(filter Windows%,$(OS)))
 	@echo Unsupported platform . . .
 else ifneq (,$(filter Linux%,$(shell uname -s)))
 	g++ -ggdb3 $< -o $(TARGET) -O3 -std=c++20 -w -I.
 	@chmod +x $(TARGET)
 	@valgrind \
+		--tool=memcheck \
 		--leak-check=full \
 		--leak-resolution=high \
 		--leak-check-heuristics=all \
@@ -69,4 +70,23 @@ else ifneq (,$(filter Linux%,$(shell uname -s)))
 		--track-origins=yes $(TARGET)
 	@echo Process returns value $$? . . .
 	@rm -rf $(TARGET) &> /dev/null
+endif
+
+massif: main.cpp rmv.hpp
+ifneq (,$(filter Windows%,$(OS)))
+	@echo Unsupported platform . . .
+else ifneq (,$(filter Linux%,$(shell uname -s)))
+	@g++ -ggdb3 $< -o $(TARGET) -O3 -std=c++20 -w -I.
+	@chmod +x $(TARGET)
+	@valgrind \
+		--tool=massif \
+		--depth=200 \
+		--time-unit=ms \
+		--detailed-freq=1 \
+		--max-snapshots=1000 \
+		--massif-out-file=$(TARGET).massif \
+		--log-file=/dev/null $(TARGET) > /dev/null
+	@rm -rf $(TARGET) &> /dev/null
+	@massif-visualizer $(TARGET).massif
+	@rm -rf $(TARGET).massif &> /dev/null
 endif
