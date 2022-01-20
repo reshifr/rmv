@@ -48,63 +48,62 @@ class mv {
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
 
-    using lvldiff_type = std::int8_t;
-    using lvlsize_type = std::uint8_t;
-    using blocksize_type = typename std::conditional<
-      std::numeric_limits<size_type>::max()==
-      std::numeric_limits<std::uint64_t>::max(),
+    using mvlsize_type = std::uint8_t;
+    using mvldiff_type = std::int8_t;
+    using mvbsize_type = typename std::conditional<
+      std::numeric_limits<size_type>::digits==
+      std::numeric_limits<std::uint64_t>::digits,
       std::uint32_t, std::uint16_t>::type;
-    using blockdiff_type = typename std::conditional<
-      std::numeric_limits<difference_type>::max()==
-      std::numeric_limits<std::int64_t>::max(),
+    using mvbdiff_type = typename std::conditional<
+      std::numeric_limits<difference_type>::digits==
+      std::numeric_limits<std::int64_t>::digits,
       std::int32_t, std::int16_t>::type;
 
-  private:
-    template <class Blk>
-    static void block_dlloc(Blk block) { delete[] block; }
-    template <class Elm>
-    static Elm* block_alloc(void) { return new Elm[block_size()](); }
-
   protected:
-    size_type m_peek;
-    union mvb {
+    struct mvb {
+      template <class Blk>
+      static void dlloc(Blk block)
+        { delete[] block; }
+
+      struct val {
+        static Tp* alloc(void)
+          { return new Tp[size()]; }
+        static Tp* alloc(const Tp& val) {
+          auto block = new Tp[size()];
+          std::fill_n(block, size(), val);
+          return block;
+        }
+      };
+
+      struct index {
+        static Tp** alloc(void)
+          { return new Tp*[size()](); }
+      };
+      
+      static consteval mvbsize_type
+        size(void) noexcept
+        { return static_cast<mvbsize_type>(1)<<Exp; }
+      static consteval mvbsize_type
+        mask(void) noexcept
+        { return size()-1; }
+      static constexpr size_type
+        end(mvlsize_type deep) noexcept
+        { return (static_cast<size_type>(1)<<(Exp*(deep+1)))-1; }
+      static constexpr mvbsize_type
+        jump(mvlsize_type lvl, size_type i) noexcept
+        { return static_cast<mvbsize_type>(i&mask()<<(Exp*lvl))>>(Exp*lvl); }
+    };
+
+    union mvp {
       Tp* val;
       Tp** index;
       Tp*** pindex;
     } m_root;
-    lvlsize_type m_deep;
+    size_type m_peek;
+    mvlsize_type m_deep;
 
-    static consteval blocksize_type
-      block_size(void) noexcept
-      { return static_cast<blocksize_type>(1)<<Exp; }
-    static consteval blocksize_type
-      block_mask(void) noexcept
-      { return block_size()-1; }
-    static constexpr size_type
-      end(lvlsize_type deep) noexcept
-      { return (static_cast<size_type>(1)<<(Exp*(deep+1)))-1; }
-    static constexpr size_type
-      mask(lvlsize_type lvl) noexcept
-      { return block_mask()<<(Exp*lvl); }
-    static constexpr blocksize_type
-      jump(lvlsize_type lvl, size_type i) noexcept
-      { return static_cast<blocksize_type>(i&mask(lvl))>>(Exp*lvl); }
-
-    mv(void) noexcept :
-      m_peek(),
-      m_root(),
-      m_deep() {}
-
-    ~mv(void) {
-      if( m_peek==0 )
-        return;
-      if( m_deep==0 ) {
-        block_dlloc(m_root.val);
-        return;
-      }
-      recursive_del(m_root, m_deep);
-      block_dlloc(m_root.index);
-    }
+    mv(void) noexcept : m_root(), m_peek(), m_deep() {}
+    ~mv(void) { destroy(); }
 
   private:
     /**
@@ -115,46 +114,75 @@ class mv {
      * @param   root   Root union
      * @param   lvl    Level of tree
      */
-    void recursive_del(mvb root, lvlsize_type lvl) {
+    void recursive_del(mvp root, mvlsize_type lvl) {
       if( lvl==1 ) {
         // dealloc block of value
-        for(blockdiff_type i=jump(lvl, m_peek);
-            i>=0; --i, m_peek-=block_size())
-          block_dlloc(root.index[i]);
+        for(mvbdiff_type i=mvb::jump(lvl, m_peek);
+            i>=0; --i, m_peek-=mvb::size())
+          mvb::dlloc(root.index[i]);
         return;
       }
       // dealloc block of index
-      for(blockdiff_type i=jump(lvl, m_peek); i>=0; --i) {
+      for(mvbdiff_type i=mvb::jump(lvl, m_peek); i>=0; --i) {
         recursive_del({.index=root.pindex[i]}, lvl-1);
-        block_dlloc(root.pindex[i]);
+        mvb::dlloc(root.pindex[i]);
       }
     }
 
     /**
      * @brief   Fill tree.
      * 
-     * Just fills the tree with blocks, without increasing the
-     * height.
+     * Just fills the tree with blocks without initialization
+     * value, without increasing the height.
      * 
      * @param   root   Root union
      * @param   lvl    Level of tree
      * @param   n      Num of blocks
      */
-    void recursive_fill(mvb root,
-      lvlsize_type lvl, blocksize_type& n) {
+    void recursive_fill(mvp root,
+      mvlsize_type lvl, mvbsize_type& n) {
       if( lvl==1 ) {
         // alloc block of value
-        for(auto i=jump(lvl, m_peek+block_size());
-            n!=0 && i<block_size(); ++i, --n, m_peek+=block_size())
-          root.index[i] = block_alloc<Tp>();
+        for(auto i=mvb::jump(lvl, m_peek+mvb::size());
+            n!=0 && i<mvb::size(); ++i, --n, m_peek+=mvb::size())
+          root.index[i] = mvb::val::alloc();
         return;
       }
       // alloc block of index
-      for(auto i=jump(lvl, m_peek+block_size());
-          n!=0 && i<block_size(); ++i) {
+      for(auto i=mvb::jump(lvl, m_peek+mvb::size());
+          n!=0 && i<mvb::size(); ++i) {
         if( root.pindex[i]==nullptr )
-          root.pindex[i] = block_alloc<Tp*>();
+          root.pindex[i] = mvb::index::alloc();
         recursive_fill({.index=root.pindex[i]}, lvl-1, n);
+      }
+    }
+
+    /**
+     * @brief   Fill tree.
+     * 
+     * Just fills the tree with blocks with initialization value,
+     * without increasing the height.
+     * 
+     * @param   root   Root union
+     * @param   lvl    Level of tree
+     * @param   n      Num of blocks
+     * @param   val    Initialization value
+     */
+    void recursive_fill(mvp root,
+      mvlsize_type lvl, mvbsize_type& n, const Tp& val) {
+      if( lvl==1 ) {
+        // alloc block of value
+        for(auto i=mvb::jump(lvl, m_peek+mvb::size());
+            n!=0 && i<mvb::size(); ++i, --n, m_peek+=mvb::size())
+          root.index[i] = mvb::val::alloc(val);
+        return;
+      }
+      // alloc block of index
+      for(auto i=mvb::jump(lvl, m_peek+mvb::size());
+          n!=0 && i<mvb::size(); ++i) {
+        if( root.pindex[i]==nullptr )
+          root.pindex[i] = mvb::index::alloc();
+        recursive_fill({.index=root.pindex[i]}, lvl-1, n, val);
       }
     }
 
@@ -170,42 +198,44 @@ class mv {
      *          - False, the tree is reduced but height is not
      *            reduced.
      */
-    bool recursive_reduce(mvb root,
-      lvlsize_type lvl, blocksize_type& n) {
+    bool recursive_reduce(mvp root,
+      mvlsize_type lvl, mvbsize_type& n) {
       if( lvl==1 ) {
-        blockdiff_type i=jump(lvl, m_peek);
+        mvbdiff_type i=mvb::jump(lvl, m_peek);
         // dealloc block of value
-        for(; n!=0 && i>=0; --i, --n, m_peek-=block_size()) {
-          block_dlloc(root.index[i]);
+        for(; n!=0 && i>=0; --i, --n, m_peek-=mvb::size()) {
+          mvb::dlloc(root.index[i]);
           root.index[i] = nullptr;
         }
         return i<0;
       }
-      blockdiff_type i=jump(lvl, m_peek);
+      mvbdiff_type i=mvb::jump(lvl, m_peek);
       // dealloc block of index
       for(; i>=0; --i) {
         if( !recursive_reduce({.index=root.pindex[i]}, lvl-1, n) )
           return false;
-        block_dlloc(root.pindex[i]);
+        mvb::dlloc(root.pindex[i]);
         root.pindex[i] = nullptr;
       }
       return i<0;
     }
 
   protected:
-    void fill(blocksize_type n) {
+    void fill(mvbsize_type n) {
+      if( n==0 )
+        return;
       // if the tree is empty, alloc block of value as root
       if( m_peek==0 ) {
-        m_root.val = block_alloc<Tp>();
-        m_peek = block_mask();
+        m_root.val = mvb::val::alloc();
+        m_peek = mvb::mask();
         --n;
       }
       while( n!=0 ) {
         // if the tree is not fit,
         // increase the tree height with alloc block of index
-        if( m_peek==end(m_deep) ) {
+        if( m_peek==mvb::end(m_deep) ) {
           auto block = m_root;
-          m_root.index = block_alloc<Tp*>();
+          m_root.index = mvb::index::alloc();
           m_root.pindex[0] = block.index;
           ++m_deep;
         }
@@ -213,65 +243,115 @@ class mv {
         recursive_fill(m_root, m_deep, n);
       }
     }
+
+    void fill(mvbsize_type n, const Tp& val) {
+      if( n==0 )
+        return;
+      // if the tree is empty, alloc block of value as root
+      if( m_peek==0 ) {
+        m_root.val = mvb::val::alloc(val);
+        m_peek = mvb::mask();
+        --n;
+      }
+      while( n!=0 ) {
+        // if the tree is not fit,
+        // increase the tree height with alloc block of index
+        if( m_peek==mvb::end(m_deep) ) {
+          auto block = m_root;
+          m_root.index = mvb::index::alloc();
+          m_root.pindex[0] = block.index;
+          ++m_deep;
+        }
+        // fill the tree with blocks
+        recursive_fill(m_root, m_deep, n, val);
+      }
+    }
     
     Tp* push(void) {
       // if the tree is empty, alloc block of value as root
       if( m_peek==0 ) {
-        m_root.val = block_alloc<Tp>();
-        m_peek = block_mask();
+        m_root.val = mvb::val::alloc();
+        m_peek = mvb::mask();
         return m_root.val;
       }
       auto block = m_root;
       // if the tree is not enough,
       // increase the height with alloc block of index
-      if( m_peek==end(m_deep) ) {
-        m_root.index = block_alloc<Tp*>();
+      if( m_peek==mvb::end(m_deep) ) {
+        m_root.index = mvb::index::alloc();
         m_root.pindex[0] = block.index;
         block = m_root;
         ++m_deep;
       }
-      m_peek += block_size();
+      m_peek += mvb::size();
       // fill the block of index with alloc block of index
       for(auto lvl=m_deep; lvl>1; --lvl) {
-        auto i = jump(lvl, m_peek);
+        auto i = mvb::jump(lvl, m_peek);
         if( block.pindex[i]==nullptr )
-          block.pindex[i] = block_alloc<Tp*>();
+          block.pindex[i] = mvb::index::alloc();
         block.index = block.pindex[i];
       }
       // alloc block of value
-      return block.index[jump(1, m_peek)]=block_alloc<Tp>();
+      return block.index[mvb::jump(1, m_peek)]=mvb::val::alloc();
     }
 
-    void reduce(blocksize_type n) {
+    Tp* tail(void) noexcept {
+      // if the tree is empty
+      if( m_peek==0 )
+        return nullptr;
+      auto block = m_root;
+      for(auto lvl=m_deep; lvl>0; --lvl)
+        block.index = block.pindex[mvb::jump(lvl, m_peek)];
+      return block.val;
+    }
+
+    void reduce(mvbsize_type n) {
       if( n==0 || m_peek==0 )
         return;
       // if only block of value, dealloc block of value
       if( m_deep==0 ) {
-        block_dlloc(m_root.val);
+        mvb::dlloc(m_root.val);
         m_root.val = nullptr;
         m_peek = 0;
         return;
       }
       // if the tree need to be destroyed, dealloc block of index
       if( recursive_reduce(m_root, m_deep, n) ) {
-        block_dlloc(m_root.index);
+        mvb::dlloc(m_root.index);
         m_root.index = nullptr;
         m_peek = m_deep = 0;
         return;
       }
       // if the tree doesn't need to be destroyed,
       // reduce the height with dealloc block of index
-      while( m_peek<=end(m_deep-1) ) {
+      while( m_peek<=mvb::end(m_deep-1) ) {
         auto block = m_root;
         m_root.index = m_root.pindex[0];
-        block_dlloc(block.index);
+        mvb::dlloc(block.index);
         if( --m_deep==0 )
           return;
       }
     }
 
+    void destroy(void) {
+      if( m_peek==0 )
+        return;
+      // dealloc block of value
+      if( m_deep==0 ) {
+        mvb::dlloc(m_root.val);
+        m_root.val = nullptr;
+        m_peek = 0;
+        return;
+      }
+      // destroy the tree
+      recursive_del(m_root, m_deep);
+      mvb::dlloc(m_root.index);
+      m_root.index = nullptr;
+      m_peek = m_deep = 0;
+    }
+
   public:
-    void debug(mvb root, lvlsize_type deep) const {
+    void debug(mvp root, mvlsize_type deep) const {
       if( root.val==nullptr )
         return;
       for(size_type i=0; i<(size_type)(deep<<1); ++i)
@@ -279,17 +359,17 @@ class mv {
       std::cout<<"|";
       if( deep==m_deep ) {
         // iterating block of value
-        for(blocksize_type i=0; i<block_size(); ++i)
+        for(mvbsize_type i=0; i<mvb::size(); ++i)
           std::cout<<root.val[i]<<"|";
         std::cout<<std::endl;
         return;
       }
       // iterating block of index
-      for(blocksize_type i=0; i<block_size(); ++i)
+      for(mvbsize_type i=0; i<mvb::size(); ++i)
         std::cout<<(static_cast<bool>(root.pindex[i]) ? "=" : " ")<<"|";
       std::cout<<std::endl;
       // block of index call each element
-      for(blocksize_type i=0; i<block_size(); ++i)
+      for(mvbsize_type i=0; i<mvb::size(); ++i)
         debug({.index=root.pindex[i]}, deep+1);
     }
 };
@@ -416,22 +496,19 @@ class rmvci : public mvi<V> {
 
 template <std::uint8_t Exp, class Tp>
 class rpmv : protected mv<Exp, Tp> {
-  using typename mv<Exp, Tp>::lvldiff_type;
-  using typename mv<Exp, Tp>::lvlsize_type;
-  using typename mv<Exp, Tp>::blockdiff_type;
-  using typename mv<Exp, Tp>::blocksize_type;
+  using typename mv<Exp, Tp>::mvlsize_type;
+  using typename mv<Exp, Tp>::mvldiff_type;
+  using typename mv<Exp, Tp>::mvbsize_type;
+  using typename mv<Exp, Tp>::mvbdiff_type;
 
   using mv<Exp, Tp>::m_peek;
   using mv<Exp, Tp>::m_root;
   using mv<Exp, Tp>::m_deep;
-  using mv<Exp, Tp>::block_size;
-  using mv<Exp, Tp>::block_mask;
-  using mv<Exp, Tp>::end;
-  using mv<Exp, Tp>::mask;
-  using mv<Exp, Tp>::jump;
   using mv<Exp, Tp>::fill;
   using mv<Exp, Tp>::push;
+  using mv<Exp, Tp>::tail;
   using mv<Exp, Tp>::reduce;
+  using mv<Exp, Tp>::destroy;
 
   public:
     using value_type = typename mv<Exp, Tp>::value_type;
@@ -447,77 +524,115 @@ class rpmv : protected mv<Exp, Tp> {
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
   private:
-    blocksize_type m_free;
+    mvbsize_type m_free;
+    struct mvb : public mv<Exp, Tp>::mvb {};
   
   public:
+
+    // void contoh(void) {
+    //   mvb::dlloc(new int[1]);
+    // }
+
+
+
     rpmv(void) noexcept : m_free() {}
     rpmv(size_type num) : rpmv() { extend(num); }
 
     template <class InIt>
-    rpmv(InIt first, InIt last) : rpmv() {
-      return;
+    rpmv(InIt first, InIt last) : rpmv() {}
+
+    void assign(size_type num, const Tp& val);
+
+    void clear(void) {
+      destroy();
+      m_free = 0;
     }
-
-    // Modifiers
-
-    void push_back(const Tp& val) {
-      // std::cout<<"const&"<<std::endl;
+  
+  private:
+    template <class Val>
+    void elm_push(Val val) {
       if( m_free>0 ) {
-        (*this)[m_peek-(--m_free)] = val;
+        (*this)[m_peek-(--m_free)] = std::forward<Val>(val);
         return;
       }
-      auto cache = push();
-      cache[0] = val;
-      m_free = block_mask();
+      push()[0] = std::forward<Val>(val);
+      m_free = mvb::mask();
     }
 
-    void push_back(Tp&& val) {
-      // std::cout<<"&&"<<std::endl;
-      if( m_free>0 ) {
-        (*this)[m_peek-(--m_free)] = std::move(val);
-        return;
-      }
-      auto cache = push();
-      cache[0] = std::move(val);
-      m_free = block_mask();
-    }
+  public:
+    void push_back(const Tp& val) { elm_push(val); }
+    void push_back(Tp&& val) { elm_push(std::move(val)); }
 
     void extend(size_type num) {
       auto new_size = size()+num;
       if( m_free>num ) {
         m_free -= num;
         return;
-      } else
-        num -= m_free;
-      blocksize_type num_block = (num>>Exp)+((num&block_mask())==0 ? 0 : 1);
+      }
+      num -= m_free;
+      mvbsize_type num_block = (num>>Exp)+((num&mvb::mask())!=0);
       fill(num_block);
       m_free = capacity()-new_size;
     }
 
-    // Element Access
-
-    reference operator[](size_type index) noexcept {
-      auto block = m_root;
-      for(auto lvl=m_deep; lvl>0; --lvl)
-        block.index = block.pindex[jump(lvl, index)];
-      return block.val[jump(0, index)];
+    void extend(size_type num, const Tp& val) {
+      auto new_size = size()+num;
+      if( m_free>num ) {
+        std::fill_n(tail()+(mvb::size()-m_free), num, val);
+        m_free -= num;
+        return;
+      }
+      std::fill_n(tail()+(mvb::size()-m_free), m_free, val);
+      num -= m_free;
+      mvbsize_type num_block = num>>Exp;
+      fill(num_block, val);
+      if( (num&mvb::mask())!=0 )
+        std::fill_n(push(), num&mvb::mask(), val);
+      m_free = capacity()-new_size;
     }
 
-    const_reference operator[](size_type index) const noexcept {
-      auto block = m_root;
-      for(auto lvl=m_deep; lvl>0; --lvl)
-        block.index = block.pindex[jump(lvl, index)];
-      return block.val[jump(0, index)];
+    void shrink(size_type num) {
+      auto new_size = size()-num;
+      if( mvb::size()-m_free>num ) {
+        m_free += num;
+
+        std::cout<<"ERROR!"<<std::endl;
+        return;
+      }
+      mvbsize_type num_block = num>>Exp;
+      reduce(num_block);
+      m_free = capacity()-new_size;
     }
 
-    // Capacity
+  private:
+    reference elm_access(size_type index) const noexcept {
+      auto block = m_root;
+      for(auto lvl=m_deep; lvl>0; --lvl)
+        block.index = block.pindex[mvb::jump(lvl, index)];
+      return block.val[mvb::jump(0, index)];
+    }
 
+  public:
+    reference operator[](size_type index) noexcept
+      { return elm_access(index); }
+    const_reference operator[](size_type index) const noexcept 
+      { return elm_access(index); }
+
+    // reference front(void) noexcept {
+    //   return elm_access(m_)
+    // }
+
+    bool empty(void) const noexcept
+      { return m_peek==0; }
     size_type size(void) const noexcept
       { return capacity()-m_free; }
+    static consteval size_type max_size(void) noexcept
+      { return static_cast<size_type>(1)<<
+        (std::numeric_limits<size_type>::digits-2); }
+    static consteval size_type max_exponent(void) noexcept
+      { return std::numeric_limits<mvbsize_type>::digits-2; }
     size_type capacity(void) const noexcept
-      { return m_root.val==nullptr ? 0 : m_peek+1; }
-
-    // Iterators
+      { return m_peek+(m_peek!=0); }
 
     iterator begin(void) noexcept
       { return iterator(this); }
@@ -553,9 +668,9 @@ class rpmv : protected mv<Exp, Tp> {
       std::cout<<"peek     = "<<(size_type)m_peek<<std::endl;
       std::cout<<"size     = "<<(size_type)size()<<std::endl;
       std::cout<<"capacity = "<<(size_type)capacity()<<std::endl;
-      std::cout<<"max      = "<<(size_type)(end(m_deep)+1)<<std::endl;
+      std::cout<<"max      = "<<(size_type)(mvb::end(m_deep)+1)<<std::endl;
       std::cout<<"root     = "<<m_root.val<<std::endl<<std::endl;
-#ifndef RMV_DEBUG
+#ifdef RMV_DEBUG
       mv<Exp, Tp>::debug(m_root, 0);
 #endif
       std::cout<<std::endl;
