@@ -38,62 +38,77 @@
 namespace rsfr {
 
 template <std::uint8_t Exp, class Tp>
-class mv {
-  public:
-    using value_type = Tp;
-    using reference = Tp&;
-    using const_reference = const Tp&;
-    using pointer = Tp*;
-    using const_pointer = const Tp*;
-    using size_type = std::size_t;
-    using difference_type = std::ptrdiff_t;
+struct mvb {
+  using value_type = Tp;
+  using reference = Tp&;
+  using const_reference = const Tp&;
+  using pointer = Tp*;
+  using const_pointer = const Tp*;
+  using size_type = std::size_t;
+  using difference_type = std::ptrdiff_t;
+  using mvlsize_type = std::uint8_t;
+  using mvldiff_type = std::int8_t;
+  using mvbsize_type = typename std::conditional<
+    std::numeric_limits<size_type>::digits==
+    std::numeric_limits<std::uint64_t>::digits,
+    std::uint32_t, std::uint16_t>::type;
+  using mvbdiff_type = typename std::conditional<
+    std::numeric_limits<difference_type>::digits==
+    std::numeric_limits<std::int64_t>::digits,
+    std::int32_t, std::int16_t>::type;
 
-    using mvlsize_type = std::uint8_t;
-    using mvldiff_type = std::int8_t;
-    using mvbsize_type = typename std::conditional<
-      std::numeric_limits<size_type>::digits==
-      std::numeric_limits<std::uint64_t>::digits,
-      std::uint32_t, std::uint16_t>::type;
-    using mvbdiff_type = typename std::conditional<
-      std::numeric_limits<difference_type>::digits==
-      std::numeric_limits<std::int64_t>::digits,
-      std::int32_t, std::int16_t>::type;
+  template <class Blk>
+  static void dlloc(Blk block)
+    { delete[] block; }
+
+  struct val {
+    static Tp* alloc(void)
+      { return new Tp[size()]; }
+    static Tp* alloc(const Tp& val) {
+      auto block = new Tp[size()];
+      std::fill_n(block, size(), val);
+      return block;
+    }
+  };
+
+  struct index {
+    static Tp** alloc(void)
+      { return new Tp*[size()](); }
+  };
+  
+  static consteval mvbsize_type
+    size(void) noexcept
+    { return static_cast<mvbsize_type>(1)<<Exp; }
+  static consteval mvbsize_type
+    mask(void) noexcept
+    { return size()-1; }
+  static constexpr size_type
+    end(mvlsize_type deep) noexcept
+    { return (static_cast<size_type>(1)<<Exp*(deep+1))-1; }
+  static constexpr mvbsize_type
+    jump(mvlsize_type lvl, size_type i) noexcept
+    { return static_cast<mvbsize_type>(i&mask()<<Exp*lvl)>>Exp*lvl; }
+};
+
+template <std::uint8_t Exp, class Tp>
+class mv {
+  private:
+    using mvb = mvb<Exp, Tp>;
+    using mvlsize_type = typename mvb::mvlsize_type;
+    using mvldiff_type = typename mvb::mvldiff_type;
+    using mvbsize_type = typename mvb::mvbsize_type;
+    using mvbdiff_type = typename mvb::mvbdiff_type;
+
+  public:
+    using value_type = typename mvb::value_type;
+    using reference = typename mvb::reference;
+    using const_reference = typename mvb::const_reference;
+    using pointer = typename mvb::pointer;
+    using const_pointer = typename mvb::const_pointer;
+    using size_type = typename mvb::size_type;
+    using difference_type = typename mvb::difference_type;
 
   protected:
-    struct mvb {
-      template <class Blk>
-      static void dlloc(Blk block)
-        { delete[] block; }
-
-      struct val {
-        static Tp* alloc(void)
-          { return new Tp[size()]; }
-        static Tp* alloc(const Tp& val) {
-          auto block = new Tp[size()];
-          std::fill_n(block, size(), val);
-          return block;
-        }
-      };
-
-      struct index {
-        static Tp** alloc(void)
-          { return new Tp*[size()](); }
-      };
-      
-      static consteval mvbsize_type
-        size(void) noexcept
-        { return static_cast<mvbsize_type>(1)<<Exp; }
-      static consteval mvbsize_type
-        mask(void) noexcept
-        { return size()-1; }
-      static constexpr size_type
-        end(mvlsize_type deep) noexcept
-        { return (static_cast<size_type>(1)<<(Exp*(deep+1)))-1; }
-      static constexpr mvbsize_type
-        jump(mvlsize_type lvl, size_type i) noexcept
-        { return static_cast<mvbsize_type>(i&mask()<<(Exp*lvl))>>(Exp*lvl); }
-    };
-
     union mvp {
       Tp* val;
       Tp** index;
@@ -402,15 +417,17 @@ class mvi {
 
 template <class V>
 class rmvi : public mvi<V> {
-  using mvi<V>::m_pos;
+  private:
+    using mvi = mvi<V>;
+    using mvi::m_pos;
 
   public:
-    using value_type = typename mvi<V>::value_type;
-    using reference = typename mvi<V>::reference;
-    using pointer = typename mvi<V>::pointer;
-    using size_type = typename mvi<V>::size_type;
-    using difference_type = typename mvi<V>::difference_type;
-    using iterator_category = typename mvi<V>::iterator_category;
+    using value_type = typename mvi::value_type;
+    using reference = typename mvi::reference;
+    using pointer = typename mvi::pointer;
+    using size_type = typename mvi::size_type;
+    using difference_type = typename mvi::difference_type;
+    using iterator_category = typename mvi::iterator_category;
 
   private:
     V* m_vector;
@@ -419,7 +436,7 @@ class rmvi : public mvi<V> {
     rmvi(void) noexcept = default;
     rmvi(V* vector) noexcept : m_vector(vector) {}
     rmvi(V* vector, difference_type off) noexcept :
-      mvi<V>(off), m_vector(vector) {}
+      mvi(off), m_vector(vector) {}
 
     reference operator*(void) const noexcept
       { return (*m_vector)[m_pos]; }
@@ -449,15 +466,17 @@ class rmvi : public mvi<V> {
 
 template <class V>
 class rmvci : public mvi<V> {
-  using mvi<V>::m_pos;
+  private:
+    using mvi = mvi<V>;
+    using mvi::m_pos;
 
   public:
-    using value_type = typename mvi<V>::value_type;
-    using reference = typename mvi<V>::const_reference;
-    using pointer = typename mvi<V>::const_pointer;
-    using size_type = typename mvi<V>::size_type;
-    using difference_type = typename mvi<V>::difference_type;
-    using iterator_category = typename mvi<V>::iterator_category;
+    using value_type = typename mvi::value_type;
+    using reference = typename mvi::const_reference;
+    using pointer = typename mvi::const_pointer;
+    using size_type = typename mvi::size_type;
+    using difference_type = typename mvi::difference_type;
+    using iterator_category = typename mvi::iterator_category;
 
   private:
     const V* m_vector;
@@ -466,7 +485,7 @@ class rmvci : public mvi<V> {
     rmvci(void) noexcept = default;
     rmvci(const V* vector) noexcept : m_vector(vector) {}
     rmvci(const V* vector, difference_type off) noexcept :
-      mvi<V>(off), m_vector(vector) {}
+      mvi(off), m_vector(vector) {}
 
     reference operator*(void) const noexcept
       { return (*m_vector)[m_pos]; }
@@ -496,28 +515,30 @@ class rmvci : public mvi<V> {
 
 template <std::uint8_t Exp, class Tp>
 class rpmv : protected mv<Exp, Tp> {
-  using typename mv<Exp, Tp>::mvlsize_type;
-  using typename mv<Exp, Tp>::mvldiff_type;
-  using typename mv<Exp, Tp>::mvbsize_type;
-  using typename mv<Exp, Tp>::mvbdiff_type;
-
-  using mv<Exp, Tp>::m_peek;
-  using mv<Exp, Tp>::m_root;
-  using mv<Exp, Tp>::m_deep;
-  using mv<Exp, Tp>::fill;
-  using mv<Exp, Tp>::push;
-  using mv<Exp, Tp>::tail;
-  using mv<Exp, Tp>::reduce;
-  using mv<Exp, Tp>::destroy;
+  private:
+    using mvb = mvb<Exp, Tp>;
+    using mv = mv<Exp, Tp>;
+    using mvlsize_type = typename mvb::mvlsize_type;
+    using mvldiff_type = typename mvb::mvldiff_type;
+    using mvbsize_type = typename mvb::mvbsize_type;
+    using mvbdiff_type = typename mvb::mvbdiff_type;
+    using mv::m_root;
+    using mv::m_peek;
+    using mv::m_deep;
+    using mv::fill;
+    using mv::push;
+    using mv::tail;
+    using mv::reduce;
+    using mv::destroy;
 
   public:
-    using value_type = typename mv<Exp, Tp>::value_type;
-    using reference = typename mv<Exp, Tp>::reference;
-    using const_reference = typename mv<Exp, Tp>::const_reference;
-    using pointer = typename mv<Exp, Tp>::pointer;
-    using const_pointer = typename mv<Exp, Tp>::const_pointer;
-    using size_type = typename mv<Exp, Tp>::size_type;
-    using difference_type = typename mv<Exp, Tp>::difference_type;
+    using value_type = typename mvb::value_type;
+    using reference = typename mvb::reference;
+    using const_reference = typename mvb::const_reference;
+    using pointer = typename mvb::pointer;
+    using const_pointer = typename mvb::const_pointer;
+    using size_type = typename mvb::size_type;
+    using difference_type = typename mvb::difference_type;
     using iterator = rmvi<rpmv<Exp, Tp>>;
     using const_iterator = rmvci<rpmv<Exp, Tp>>;
     using reverse_iterator = std::reverse_iterator<iterator>;
@@ -525,23 +546,15 @@ class rpmv : protected mv<Exp, Tp> {
 
   private:
     mvbsize_type m_free;
-    struct mvb : public mv<Exp, Tp>::mvb {};
   
   public:
-
-    // void contoh(void) {
-    //   mvb::dlloc(new int[1]);
-    // }
-
-
-
     rpmv(void) noexcept : m_free() {}
     rpmv(size_type num) : rpmv() { extend(num); }
 
     template <class InIt>
     rpmv(InIt first, InIt last) : rpmv() {}
 
-    void assign(size_type num, const Tp& val);
+    void assign(size_type num, const Tp& val) {}
 
     void clear(void) {
       destroy();
@@ -671,7 +684,7 @@ class rpmv : protected mv<Exp, Tp> {
       std::cout<<"max      = "<<(size_type)(mvb::end(m_deep)+1)<<std::endl;
       std::cout<<"root     = "<<m_root.val<<std::endl<<std::endl;
 #ifdef RMV_DEBUG
-      mv<Exp, Tp>::debug(m_root, 0);
+      mv::debug(m_root, 0);
 #endif
       std::cout<<std::endl;
     }
