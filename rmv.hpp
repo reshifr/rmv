@@ -59,6 +59,7 @@ struct mvb {
 
   template <class Blk>
   static void dlloc(Blk block)
+    noexcept(std::is_nothrow_destructible<Blk>::value)
     { delete[] block; }
 
   struct val {
@@ -118,7 +119,8 @@ class mv {
     mvlsize_type m_deep;
 
     mv(void) noexcept : m_root(), m_peek(), m_deep() {}
-    ~mv(void) { destroy(); }
+    ~mv(void) noexcept(std::is_nothrow_destructible<Tp>::value)
+      { destroy(); }
 
   private:
     /**
@@ -129,7 +131,8 @@ class mv {
      * @param   root   Root union
      * @param   lvl    Level of tree
      */
-    void recursive_del(mvp root, mvlsize_type lvl) {
+    void recursive_del(mvp root, mvlsize_type lvl) 
+      noexcept(std::is_nothrow_destructible<Tp>::value) {
       if( lvl==1 ) {
         // dealloc block of value
         for(mvbdiff_type i=mvb::jump(lvl, m_peek);
@@ -214,7 +217,8 @@ class mv {
      *            reduced.
      */
     bool recursive_reduce(mvp root,
-      mvlsize_type lvl, mvbsize_type& n) {
+      mvlsize_type lvl, mvbsize_type& n)
+      noexcept(std::is_nothrow_destructible<Tp>::value) {
       if( lvl==1 ) {
         mvbdiff_type i=mvb::jump(lvl, m_peek);
         // dealloc block of value
@@ -310,17 +314,24 @@ class mv {
       return block.index[mvb::jump(1, m_peek)]=mvb::val::alloc();
     }
 
-    Tp* tail(void) noexcept {
-      // if the tree is empty
-      if( m_peek==0 )
-        return nullptr;
+    Tp* head(void) noexcept {
       auto block = m_root;
       for(auto lvl=m_deep; lvl>0; --lvl)
-        block.index = block.pindex[mvb::jump(lvl, m_peek)];
+        block.index = block.pindex[0];
       return block.val;
     }
 
-    void reduce(mvbsize_type n) {
+    Tp* access(size_type i) noexcept {
+      auto block = m_root;
+      for(auto lvl=m_deep; lvl>0; --lvl)
+        block.index = block.pindex[mvb::jump(lvl, i)];
+      return block.val;
+    }
+
+    Tp* tail(void) noexcept { return access(m_peek); }
+
+    void reduce(mvbsize_type n)
+      noexcept(std::is_nothrow_destructible<Tp>::value) {
       if( n==0 || m_peek==0 )
         return;
       // if only block of value, dealloc block of value
@@ -348,7 +359,8 @@ class mv {
       }
     }
 
-    void destroy(void) {
+    void destroy(void)
+      noexcept(std::is_nothrow_destructible<Tp>::value) {
       if( m_peek==0 )
         return;
       // dealloc block of value
@@ -527,6 +539,8 @@ class rpmv : protected mv<Exp, Tp> {
     using mv::m_deep;
     using mv::fill;
     using mv::push;
+    using mv::head;
+    using mv::access;
     using mv::tail;
     using mv::reduce;
     using mv::destroy;
@@ -556,7 +570,8 @@ class rpmv : protected mv<Exp, Tp> {
 
     void assign(size_type num, const Tp& val) {}
 
-    void clear(void) {
+    void clear(void)
+      noexcept(std::is_nothrow_destructible<Tp>::value) {
       destroy();
       m_free = 0;
     }
@@ -604,7 +619,8 @@ class rpmv : protected mv<Exp, Tp> {
       m_free = capacity()-new_size;
     }
 
-    void shrink(size_type num) {
+    void shrink(size_type num)
+      noexcept(std::is_nothrow_destructible<Tp>::value) {
       auto new_size = size()-num;
       if( mvb::size()-m_free>num ) {
         m_free += num;
@@ -612,29 +628,32 @@ class rpmv : protected mv<Exp, Tp> {
         std::cout<<"ERROR!"<<std::endl;
         return;
       }
-      mvbsize_type num_block = num>>Exp;
+      mvbsize_type num_block = 1;
+      num -= mvb::size()-m_free;
+      num_block += num>>Exp;
       reduce(num_block);
       m_free = capacity()-new_size;
     }
 
-  private:
-    reference elm_access(size_type index) const noexcept {
-      auto block = m_root;
-      for(auto lvl=m_deep; lvl>0; --lvl)
-        block.index = block.pindex[mvb::jump(lvl, index)];
-      return block.val[mvb::jump(0, index)];
-    }
-
   public:
     reference operator[](size_type index) noexcept
-      { return elm_access(index); }
+      { return access(index)[mvb::jump(0, index)]; }
     const_reference operator[](size_type index) const noexcept 
-      { return elm_access(index); }
+      { return access(index)[mvb::jump(0, index)]; }
+    reference front(void) noexcept
+      { return head()[0]; }
+    const_reference front(void) const noexcept
+      { return head()[0]; }
+    reference back(void) noexcept
+      { return tail()[mvb::jump(0, m_peek-m_free)]; }
+    const_reference back(void) const noexcept
+      { return tail()[mvb::jump(0, m_peek-m_free)]; }
 
-    // reference front(void) noexcept {
-    //   return elm_access(m_)
-    // }
+  private:
+    size_type capacity(void) const noexcept
+      { return m_peek+(m_peek!=0); }
 
+  public:
     bool empty(void) const noexcept
       { return m_peek==0; }
     size_type size(void) const noexcept
@@ -644,9 +663,8 @@ class rpmv : protected mv<Exp, Tp> {
         (std::numeric_limits<size_type>::digits-2); }
     static consteval size_type max_exponent(void) noexcept
       { return std::numeric_limits<mvbsize_type>::digits-2; }
-    size_type capacity(void) const noexcept
-      { return m_peek+(m_peek!=0); }
 
+  public:
     iterator begin(void) noexcept
       { return iterator(this); }
     const_iterator begin(void) const noexcept
@@ -659,7 +677,6 @@ class rpmv : protected mv<Exp, Tp> {
       { return cend(); }
     const_iterator cend(void) const noexcept
       { return const_iterator(this, size()); }
-
     reverse_iterator rbegin(void) noexcept
       { return reverse_iterator(end()); }
     const_reverse_iterator rbegin(void) const noexcept
