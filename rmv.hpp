@@ -591,6 +591,14 @@ class rpmv : protected mv<Exp, Tp> {
     void push_back(const Tp& val) { elm_push(val); }
     void push_back(Tp&& val) { elm_push(std::move(val)); }
 
+    void pop_back(void)
+      noexcept(std::is_nothrow_destructible<Tp>::value) {
+      if( (m_free++)!=mvb::mask() )
+        return;
+      reduce(1);
+      m_free = 0;
+    }
+
     void extend(size_type num) {
       auto new_size = size()+num;
       if( m_free>num ) {
@@ -624,8 +632,6 @@ class rpmv : protected mv<Exp, Tp> {
       auto new_size = size()-num;
       if( mvb::size()-m_free>num ) {
         m_free += num;
-
-        std::cout<<"ERROR!"<<std::endl;
         return;
       }
       mvbsize_type num_block = 1;
