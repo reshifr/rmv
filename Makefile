@@ -55,6 +55,18 @@ else
 	@rm -rf $(TARGET) &> /dev/null
 endif
 
+nvc: main.cpp rmv.hpp
+ifneq (,$(filter Windows%,$(OS)))
+	@echo Unsupported platform . . .
+else
+	nvc++ $< -o $(TARGET) -march=native -std=c++20 -O4 \
+		-I. -Wall -Wextra -Wshadow
+	@chmod +x $(TARGET)
+	@$(TARGET)
+	@echo Process returns value $$? . . .
+	@rm -rf $(TARGET) &> /dev/null
+endif
+
 memcheck: main.cpp rmv.hpp
 ifneq (,$(filter Windows%,$(OS)))
 	@echo Unsupported platform . . .
