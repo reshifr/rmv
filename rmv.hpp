@@ -32,6 +32,7 @@
 
 #include <limits>
 #include <iostream>
+#include <functional>
 #include <type_traits>
 #include <initializer_list>
 
@@ -71,11 +72,20 @@ struct mvb {
       std::fill_n(block, size(), val);
       return block;
     }
+    static Tp* alloc(mvbsize_type n)
+      { return new Tp[n]; }
+    static Tp* alloc(mvbsize_type n, const Tp& val) {
+      auto block = new Tp[n];
+      std::fill_n(block, n, val);
+      return block;
+    }
   };
 
   struct index {
     static Tp** alloc(void)
       { return new Tp*[size()](); }
+    static Tp** alloc(mvbsize_type n)
+      { return new Tp*[n](); }
   };
   
   static consteval mvbsize_type
@@ -119,8 +129,7 @@ class mv {
     mvlsize_type m_deep;
 
     mv(void) noexcept : m_root(), m_peek(), m_deep() {}
-    ~mv(void) noexcept(std::is_nothrow_destructible_v<Tp>)
-      { destroy(); }
+    // ~mv(void) noexcept(std::is_nothrow_destructible_v<Tp>) { destroy(); }
 
   private:
     /**
@@ -205,6 +214,73 @@ class mv {
         recursive_fill({.index=root.pindex[i]}, lvl-1, n, val);
       }
     }
+
+    template <class Blk>
+    Blk recursive_backward(mvp root, Blk& prev, mvbsize_type n,
+      mvlsize_type lvl, difference_type p, difference_type& q) {
+      // traverse the blocks target
+      if( lvl==1 ) {
+        mvbdiff_type i=mvb<Exp, Tp>::jump(lvl, q);
+        for(; p<=q && i>=0; --i, q-=mvb<Exp, Tp>::size()) {
+          auto rem = mvb<Exp, Tp>::size()-n;
+          auto block = reinterpret_cast<Blk>(root.pindex[i]);
+          if( prev==nullptr ) {
+            prev = block;
+            std::move_backward(block, block+rem, block+mvb<Exp, Tp>::size());
+            continue;
+          }
+          std::move(block+rem, block+mvb<Exp, Tp>::size(), prev);
+          std::move_backward(block, block+rem, block+mvb<Exp, Tp>::size());
+          prev = block;
+        }
+        return reinterpret_cast<Blk>(root.pindex[i]);
+      }
+      Blk block;
+      // traverse block of index
+      for(mvbdiff_type i=mvb<Exp, Tp>::jump(lvl, q); p<=q && i>=0; --i)
+        block = recursive_backward<Blk>({.index=root.pindex[i]},
+          prev, n, lvl-1, p, q);
+      return block;
+    }
+
+    template <class Blk>
+    void rshift(mvlsize_type lvl, size_type i, mvbsize_type n) {
+      Blk prev = nullptr;
+      difference_type peek = m_peek>>(m_deep-lvl)*Exp;
+      auto iblock = i&mvb<Exp, Tp>::mask();
+
+      if( iblock==0 ) {
+        recursive_backward<Blk>(m_root, prev, n, lvl, i, peek);
+        std::fill_n(prev, n, std::remove_pointer_t<Blk>());
+        
+      } else if( iblock+n<=mvb<Exp, Tp>::size() ) {
+        auto rem = mvb<Exp, Tp>::size()-n;
+        auto head = recursive_backward<Blk>(m_root,
+          prev, n, lvl, i+mvb<Exp, Tp>::size(), peek);
+        std::move(head+rem, head+mvb<Exp, Tp>::size(), prev);
+        std::move_backward(head+iblock, head+rem, head+mvb<Exp, Tp>::size());
+        std::fill_n(head+iblock, n, std::remove_pointer_t<Blk>());
+      } else {
+        // TODO
+      }
+    }
+    
+  public:
+    template <class Blk>
+    void print(Blk block, mvbsize_type n) {
+      if( block==nullptr )
+        return;
+      for(mvbsize_type i=0; i<n; ++i)
+        std::cout<<block[i]<<" ";
+      std::cout<<std::endl;
+    }
+    
+    void test(void) {
+      // rshift<Tp*>(2, 1, 2);
+      rshift<Tp**>(1, 0, 1);
+    }
+
+  private:
 
     /**
      * @brief   Reduce tree.
@@ -332,6 +408,11 @@ class mv {
     }
 
     Tp* tail(void) noexcept { return access(m_peek); }
+
+
+
+
+
 
     void reduce(mvbsize_type n)
       noexcept(std::is_nothrow_destructible_v<Tp>) {
@@ -560,6 +641,10 @@ class rpmv : protected mv<Exp, Tp> {
 
   private:
     mvbsize_type m_free;
+
+  public:
+    using mv<Exp, Tp>::test;
+    void testing(void) { test(); }
   
   public:
     rpmv(void) noexcept : m_free() {}
