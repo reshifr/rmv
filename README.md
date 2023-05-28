@@ -11,4 +11,4 @@ eksponensial (100, 200, 400, 800, 1600), sehingga tidak pernah terjadi lompatan 
 Kelemahannya adalah kompleksitas baca-tulis *array* menjadi `O(log(B, n))`, di mana `B` adalah
 ukuran block data terkecil untuk tumbuh dan `n` adalah ukuran data. Beberapa cara dalam pengoptimalan
 kompleksitas baca-tulis adalah dengan cara menyimpan pointer ke blok yang sering diakses dengan
-mekanisme LRU (*least recently used*) atau LFU (*Least frequently used*).
+mekanisme LRU (*least recently used*) atau LFU (*least frequently used*).
