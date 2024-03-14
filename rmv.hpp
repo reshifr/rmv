@@ -848,7 +848,7 @@ class rpmv : protected mv<Exp, Tp> {
     rpmv(void) noexcept {}
     rpmv(size_type num) : rpmv{} { fill(num); }
     rpmv(size_type num, const Tp& val) : rpmv{} { fill(num, val); }
-    ~rpmv(void) noexcept(std::is_nothrow_destructible_v<Tp>) {}
+    ~rpmv(void) noexcept(std::is_nothrow_destructible_v<Tp>) { destroy(); }
 
     void clear(void)
       noexcept(std::is_nothrow_destructible_v<Tp>) { destroy(); }
