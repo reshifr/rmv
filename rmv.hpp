@@ -31,6 +31,7 @@
 #define RSFR_RMV_H
 
 #include <limits>
+#include <cstdint>
 #include <iostream>
 #include <functional>
 #include <type_traits>

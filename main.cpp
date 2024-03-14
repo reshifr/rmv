@@ -1,10 +1,10 @@
-#define RMV_DEBUG_
+#define RMV_DEBUG
 
+#include <rmv.hpp>
 #include <chrono>
 #include <random>
 #include <string>
 #include <vector>
-#include <rmv.hpp>
 #include <algorithm>
 
 #if defined(__GNUG__) && defined(_OPENMP)
@@ -64,7 +64,7 @@ void run(void) {
   stable_sort(execution::par, mv.rbegin(), mv.rend());
 #endif
   cout<<"clock = "<<cl.result<milliseconds>()<<" ms"<<endl<<endl;
-  mv.debug();
+  mv.print();
 
   for(auto& elm : mv)
     cout<<elm<<" ";
